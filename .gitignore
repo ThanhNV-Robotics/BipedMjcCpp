@@ -1,6 +1,11 @@
 # Prerequisites
 *.d
 
+# Other reference repo
+
+OpenLoong-Dyn-Control/
+.vscode/
+
 # Compiled Object files
 *.slo
 *.lo
