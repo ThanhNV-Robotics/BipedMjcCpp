@@ -27,7 +27,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "lodepng.h"
 #include <mujoco/mjdata.h>
 #include <mujoco/mjui.h>
 #include <mujoco/mjvisualize.h>
@@ -2680,37 +2679,9 @@ void Simulate::Render() {
     ShowSensor(this, smallrect);
   }
 
-  // take screenshot, save to file
-  if (this->screenshotrequest.exchange(false)) {
-    const unsigned int h = uistate.rect[0].height;
-    const unsigned int w = uistate.rect[0].width;
-    std::unique_ptr<unsigned char[]> rgb(new unsigned char[3*w*h]);
-    if (!rgb) {
-      mju_error("could not allocate buffer for screenshot");
-    }
-    mjr_readPixels(rgb.get(), nullptr, uistate.rect[0], &this->platform_ui->mjr_context());
-
-    // flip up-down
-    for (int r = 0; r < h/2; ++r) {
-      unsigned char* top_row = &rgb[3*w*r];
-      unsigned char* bottom_row = &rgb[3*w*(h-1-r)];
-      std::swap_ranges(top_row, top_row+3*w, bottom_row);
-    }
-
-    // save as PNG
-    // TODO(b/241577466): Parse the stem of the filename and use a .PNG extension.
-    // Unfortunately, if we just yank ".xml"/".mjb" from the filename and append .PNG, the macOS
-    // file dialog does not automatically open that location. Thus, we defer to a default
-    // "screenshot.png" for now.
-    const std::string path = GetSavePath("screenshot.png");
-    if (!path.empty()) {
-      if (lodepng::encode(path, rgb.get(), w, h, LCT_RGB)) {
-        mju_error("could not save screenshot");
-      } else {
-        std::printf("saved screenshot: %s\n", path.c_str());
-      }
-    }
-  }
+  // screenshot-to-PNG support (lodepng) was removed from this vendored copy
+  // of simulate.cc; just clear the request so the button/shortcut is a no-op
+  this->screenshotrequest.store(false);
 
   // user figures
   if (this->newfigurerequest.load() == 1) {

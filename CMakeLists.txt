@@ -27,11 +27,9 @@ find_package(glfw3 3.3 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
-# lodepng: vendored, required by simulate.cc for screenshot capture
-add_library(lodepng STATIC third_party/lodepng/lodepng.cpp)
-target_include_directories(lodepng PUBLIC third_party/lodepng)
-
-# MuJoCo's simulate UI sources, vendored under third_party/mujoco/simulate
+# MuJoCo's simulate UI sources, vendored under third_party/mujoco/simulate.
+# The Screenshot-to-PNG feature (and its lodepng dependency) was patched out
+# of our copy of simulate.cc -- not needed, and one less vendored library.
 set(MUJOCO_SIMULATE_DIR ${MUJOCO_DIR}/simulate)
 add_library(mujoco_simulate STATIC
   ${MUJOCO_SIMULATE_DIR}/simulate.cc
@@ -45,7 +43,6 @@ target_link_libraries(mujoco_simulate PUBLIC
   glfw
   OpenGL::GL
   Threads::Threads
-  lodepng
 )
 
 # ------------------------------------------------------------------
