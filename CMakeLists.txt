@@ -21,6 +21,38 @@ set_target_properties(mujoco::mujoco PROPERTIES
 )
 
 # ------------------------------------------------------------------
+# Pinocchio (prebuilt static library vendored under third_party/pinocchio).
+# Pinocchio itself needs Eigen, Boost (filesystem/system), and urdfdom
+# (for URDF parsing) -- all available as system packages, so we just
+# find them and attach them to the imported target's INTERFACE.
+# ------------------------------------------------------------------
+set(PINOCCHIO_DIR ${CMAKE_SOURCE_DIR}/third_party/pinocchio)
+
+find_package(Eigen3 REQUIRED)
+find_package(Boost REQUIRED COMPONENTS filesystem system)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(urdfdom REQUIRED IMPORTED_TARGET urdfdom)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(PINOCCHIO_LIB ${PINOCCHIO_DIR}/libpinocchio_lin_arm64.a)
+else()
+  set(PINOCCHIO_LIB ${PINOCCHIO_DIR}/libpinocchio_lin_x64.a)
+endif()
+
+add_library(pinocchio::pinocchio STATIC IMPORTED)
+set_target_properties(pinocchio::pinocchio PROPERTIES
+  IMPORTED_LOCATION ${PINOCCHIO_LIB}
+  INTERFACE_INCLUDE_DIRECTORIES ${PINOCCHIO_DIR}
+)
+target_link_libraries(pinocchio::pinocchio INTERFACE
+  Eigen3::Eigen
+  Boost::filesystem
+  Boost::system
+  PkgConfig::urdfdom
+)
+target_compile_definitions(pinocchio::pinocchio INTERFACE PINOCCHIO_STATIC)
+
+# ------------------------------------------------------------------
 # Dependencies needed to build MuJoCo's own "simulate" GUI from source
 # ------------------------------------------------------------------
 find_package(glfw3 3.3 REQUIRED)
@@ -76,12 +108,14 @@ target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Thread
 # ------------------------------------------------------------------
 add_executable(init_mujoco_gui tests/init_mujoco_gui.cpp)
 target_link_libraries(init_mujoco_gui PRIVATE core dl)
-target_compile_definitions(init_mujoco_gui PRIVATE
-  BIPED_MODEL_DIR="${CMAKE_SOURCE_DIR}/models/mjcf"
-)
 
 add_executable(init_mujoco_glfw_ui tests/init_mujoco_glfw_ui.cpp)
 target_link_libraries(init_mujoco_glfw_ui PRIVATE core dl)
-target_compile_definitions(init_mujoco_glfw_ui PRIVATE
-  BIPED_MODEL_DIR="${CMAKE_SOURCE_DIR}/models/mjcf"
-)
+
+add_executable(init_pinocchio tests/init_pinocchio.cpp)
+target_link_libraries(init_pinocchio PRIVATE pinocchio::pinocchio)
+
+add_executable(joint_pd_control tests/joint_control/joint_pd_control.cpp)
+target_link_libraries(joint_pd_control PRIVATE core dl)
+target_link_libraries(joint_pd_control PRIVATE pinocchio::pinocchio)
+# target_link_libraries(joint_pd_control PRIVATE pinocchio::pinocchio)

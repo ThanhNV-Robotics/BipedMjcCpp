@@ -13,10 +13,12 @@
 
 #include "SimUI.h"
 
+const std::string BIPED_MODEL_DIR = "models/mjcf";
+
 int main(int argc, char** argv) {
   std::printf("MuJoCo version %s\n", mj_versionString());
 
-  const std::string default_model = std::string(BIPED_MODEL_DIR) + "/scene.xml";
+  const std::string default_model = BIPED_MODEL_DIR + "/scene.xml";
   const std::string model_path = (argc > 1) ? argv[1] : default_model;
 
   char loadError[1024] = "";
