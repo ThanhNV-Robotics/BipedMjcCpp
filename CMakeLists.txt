@@ -53,6 +53,44 @@ target_link_libraries(pinocchio::pinocchio INTERFACE
 target_compile_definitions(pinocchio::pinocchio INTERFACE PINOCCHIO_STATIC)
 
 # ------------------------------------------------------------------
+# jsoncpp (prebuilt static library vendored under third_party/jsoncpp)
+# ------------------------------------------------------------------
+set(JSONCPP_DIR ${CMAKE_SOURCE_DIR}/third_party/jsoncpp)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(JSONCPP_LIB ${JSONCPP_DIR}/libjsoncpp_lin_arm64.a)
+else()
+  set(JSONCPP_LIB ${JSONCPP_DIR}/libjsoncpp_lin_x64.a)
+endif()
+
+add_library(jsoncpp::jsoncpp STATIC IMPORTED)
+set_target_properties(jsoncpp::jsoncpp PROPERTIES
+  IMPORTED_LOCATION ${JSONCPP_LIB}
+  INTERFACE_INCLUDE_DIRECTORIES ${JSONCPP_DIR}
+)
+
+# ------------------------------------------------------------------
+# Quill (prebuilt static library vendored under third_party/quill).
+# Quill bundles its own copy of fmt under quill/bundled/fmt, which is
+# why "fmt/format.h" needs quill/bundled on the include path too.
+# ------------------------------------------------------------------
+set(QUILL_DIR ${CMAKE_SOURCE_DIR}/third_party/quill)
+find_package(Threads REQUIRED)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(QUILL_LIB ${QUILL_DIR}/libquill_lin_arm64.a)
+else()
+  set(QUILL_LIB ${QUILL_DIR}/libquill_lin_x64.a)
+endif()
+
+add_library(quill::quill STATIC IMPORTED)
+set_target_properties(quill::quill PROPERTIES
+  IMPORTED_LOCATION ${QUILL_LIB}
+  INTERFACE_INCLUDE_DIRECTORIES "${QUILL_DIR};${QUILL_DIR}/quill/bundled"
+)
+target_link_libraries(quill::quill INTERFACE Threads::Threads)
+
+# ------------------------------------------------------------------
 # Dependencies needed to build MuJoCo's own "simulate" GUI from source
 # ------------------------------------------------------------------
 find_package(glfw3 3.3 REQUIRED)
@@ -101,7 +139,7 @@ target_include_directories(core PUBLIC
   math
   sim_interface
 )
-target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads)
+target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads Eigen3::Eigen jsoncpp::jsoncpp quill::quill)
 
 # ------------------------------------------------------------------
 # Tests

@@ -4,12 +4,17 @@
 #include <string>
 #include "GLFW_callbacks.h"
 
+
+#include "MJ_interface.h"
+
 //pinocchio
 #include <pinocchio/algorithm/joint-configuration.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/parsers/urdf.hpp>
+
+#include "PVT_ctrl.h" // joint low-level controller
 
 
 const std::string MODEL_DIR = "models/mjcf"; // path to mujoco xml model
@@ -52,6 +57,22 @@ int main (int argc, char** argv)
 
     std::printf("Compile pinocchio from urdf ok\n");
 
+    //-------------------------------------------------------------------
+    // Init classes
+    //-------------------------------------------------------------------
+    DataBus RobotState(7); // data bus
+    const std::string joint_ctrl_config_path = "config/right_joint_ctrl_config.json";
+    PVT_Ctr pvtCtr (mj_model->opt.timestep, joint_ctrl_config_path.c_str());
+    pvtCtr.printPVTinfo();
+    // MuJoCo interface
+
+    MJ_Interface mj_interface (mj_model, mj_data, joint_ctrl_config_path.c_str());
+
+    std::printf("Init MuJoCo Interface\n");
+    mj_interface.printInfo();
+
+
+
     // Init mujoco UI from GLFW_callbacks
     UIctr ui(mj_model, mj_data);
     ui.iniGLFW();
@@ -59,6 +80,10 @@ int main (int argc, char** argv)
     ui.createWindow(model_path.c_str(), /*saveVideo=*/false);
     
     double simStart = mj_data->time;
+    double simTime = mj_data->time;
+
+    // const int printingFreq = 100;
+    int count = 0;
 
     while (!glfwWindowShouldClose(ui.window))
     {
@@ -67,6 +92,27 @@ int main (int argc, char** argv)
         {
             ui.applyPerturbation();
             mj_step(mj_model, mj_data);
+
+            simTime = mj_data->time;            
+
+            mj_interface.updateSensorValues(); // read robot states from simulator
+            mj_interface.dataBusWrite(RobotState); // write to data bus so other controllers can utilize
+            
+
+            // // joint low-level controller pvt read robot state from data bus
+            pvtCtr.dataBusRead(RobotState);
+            // // Compute joint torque
+            pvtCtr.calMotorsPVT();
+            pvtCtr.dataBusWrite(RobotState); // write the joint toque cmd to data bus
+            mj_interface.setMotorsTorque(RobotState.motors_tor_out);
+            
+            count ++;
+            if (count >= 100 )
+            {
+                // mj_interface.printJointPos();
+                pvtCtr.printTorqueOut();
+                count = 0;        
+            } 
         }
         ui.updateScene(); //
     }
