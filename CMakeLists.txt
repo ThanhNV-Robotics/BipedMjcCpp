@@ -91,11 +91,30 @@ set_target_properties(quill::quill PROPERTIES
 target_link_libraries(quill::quill INTERFACE Threads::Threads)
 
 # ------------------------------------------------------------------
+# GLFW (prebuilt static library vendored under third_party/glfw).
+# The binary dlopen()s X11/Wayland at runtime rather than linking them
+# directly (see its own undefined symbols), so dl + Threads are all it
+# needs at link time -- both already available on any Linux desktop.
+# ------------------------------------------------------------------
+set(GLFW_DIR ${CMAKE_SOURCE_DIR}/third_party/glfw)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(GLFW_LIB ${GLFW_DIR}/libglfw3_lin_arm64.a)
+else()
+  set(GLFW_LIB ${GLFW_DIR}/libglfw3_lin_x64.a)
+endif()
+
+add_library(glfw::glfw STATIC IMPORTED)
+set_target_properties(glfw::glfw PROPERTIES
+  IMPORTED_LOCATION ${GLFW_LIB}
+  INTERFACE_INCLUDE_DIRECTORIES ${GLFW_DIR}
+)
+target_link_libraries(glfw::glfw INTERFACE dl Threads::Threads)
+
+# ------------------------------------------------------------------
 # Dependencies needed to build MuJoCo's own "simulate" GUI from source
 # ------------------------------------------------------------------
-find_package(glfw3 3.3 REQUIRED)
 find_package(OpenGL REQUIRED)
-find_package(Threads REQUIRED)
 
 # MuJoCo's simulate UI sources, vendored under third_party/mujoco/simulate.
 # The Screenshot-to-PNG feature (and its lodepng dependency) was patched out
@@ -110,7 +129,7 @@ add_library(mujoco_simulate STATIC
 target_include_directories(mujoco_simulate PUBLIC ${MUJOCO_SIMULATE_DIR})
 target_link_libraries(mujoco_simulate PUBLIC
   mujoco::mujoco
-  glfw
+  glfw::glfw
   OpenGL::GL
   Threads::Threads
 )
