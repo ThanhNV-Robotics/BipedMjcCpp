@@ -1,5 +1,6 @@
 // Use pinocchio to calculate rigid body dynamics
 #include <mujoco/mujoco.h>
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include "GLFW_callbacks.h"
@@ -13,6 +14,8 @@
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/parsers/urdf.hpp>
+
+#include "data_logger.h"
 
 #include "PVT_ctrl.h" // joint low-level controller
 
@@ -64,6 +67,7 @@ int main (int argc, char** argv)
     const std::string joint_ctrl_config_path = "config/right_joint_ctrl_config.json";
     PVT_Ctr pvtCtr (mj_model->opt.timestep, joint_ctrl_config_path.c_str());
     pvtCtr.printPVTinfo();
+    DataLogger logger("record/datalog.log"); // data logger
     // MuJoCo interface
 
     MJ_Interface mj_interface (mj_model, mj_data, joint_ctrl_config_path.c_str());
@@ -71,21 +75,30 @@ int main (int argc, char** argv)
     std::printf("Init MuJoCo Interface\n");
     mj_interface.printInfo();
 
+    // register variable name for data logger
+    logger.addIterm("simTime", 1);
+    logger.addIterm("joint_pos",6);
+    logger.addIterm("joint_vel",6);
+    logger.addIterm("joint_accel",6);
+    logger.addIterm("joint_torque",6);
+    logger.finishItermAdding();
 
 
     // Init mujoco UI from GLFW_callbacks
     UIctr ui(mj_model, mj_data);
     ui.iniGLFW();
-    ui.enableTracking();
+    ui.disableTracking();
     ui.createWindow(model_path.c_str(), /*saveVideo=*/false);
     
+
+    // Sim loop
     double simStart = mj_data->time;
     double simTime = mj_data->time;
-
+    const double sim_duration = 10;
     // const int printingFreq = 100;
     int count = 0;
 
-    while (!glfwWindowShouldClose(ui.window))
+    while (!glfwWindowShouldClose(ui.window) && simTime <= sim_duration)
     {
         simStart = mj_data->time;
         while (mj_data->time - simStart < 1.0 / 60.0 && ui.runSim) // ensure the rendering in real-time
@@ -99,7 +112,10 @@ int main (int argc, char** argv)
             mj_interface.dataBusWrite(RobotState); // write to data bus so other controllers can utilize
             
 
-            // // joint low-level controller pvt read robot state from data bus
+            // // joint low-level controller pvt
+            // generate reference joint trajectory
+            pvtCtr.genTestTrajectory(simTime);
+            // read robot state from data bus
             pvtCtr.dataBusRead(RobotState);
             // // Compute joint torque
             pvtCtr.calMotorsPVT();
@@ -112,10 +128,21 @@ int main (int argc, char** argv)
                 // mj_interface.printJointPos();
                 pvtCtr.printTorqueOut();
                 count = 0;        
-            } 
+            }
+
+            // log data
+            logger.startNewLine();
+            logger.recItermData("simTime", simTime);
+            logger.recItermData("joint_pos",mj_interface.getJointPos());
+            logger.recItermData("joint_vel",mj_interface.getJointVel());
+            logger.recItermData("joint_accel", mj_interface.getJointAccel());
+            logger.recItermData("joint_torque", mj_interface.getJointTorque());
+            logger.finishLine();
         }
         ui.updateScene(); //
     }
+
+    ui.Close(); // close and delete variables
 
     return 0;
 }

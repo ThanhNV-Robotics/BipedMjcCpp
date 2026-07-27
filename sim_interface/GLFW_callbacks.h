@@ -75,6 +75,7 @@ public:
     void Close();
 
     void enableTracking();
+    void disableTracking();
 
 private:
     unsigned char* image_rgb_;

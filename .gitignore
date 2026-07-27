@@ -72,7 +72,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
-
+record/
 # Vendored prebuilt libraries under third_party/ (mujoco, pinocchio,
 # jsoncpp, quill, urdfdom/tinyxml/console_bridge) are committed
 # intentionally, so a fresh clone builds without installing anything.

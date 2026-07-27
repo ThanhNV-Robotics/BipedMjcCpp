@@ -20,6 +20,8 @@ PVT_Ctr::PVT_Ctr(double timeStepIn, const char *jsonPath) {
     jointNum=motorName.size();
 
     tau_out_lpf.assign(jointNum,LPF_Fst());
+    traj_pos_lpf.assign(jointNum,LPF_Fst());
+    traj_vel_lpf.assign(jointNum,LPF_Fst());
     motor_vel.assign(jointNum,0);
     motor_pos_cur.assign(jointNum,0);
     motor_pos_des_old.assign(jointNum,0);
@@ -46,6 +48,12 @@ PVT_Ctr::PVT_Ctr(double timeStepIn, const char *jsonPath) {
         gear[i] = root_read[motorName[i]]["gear"].asDouble();
         tau_out_lpf[i].setPara(fc, timeStepIn);
         tau_out_lpf[i].ftOut(0);
+
+        const double trajLPF_Fc = 1.0; // cutoff (Hz) for smoothing genTestTrajectory's reference
+        traj_pos_lpf[i].setPara(trajLPF_Fc, timeStepIn);
+        traj_vel_lpf[i].setPara(trajLPF_Fc, timeStepIn);
+        traj_pos_lpf[i].ftOut(0);
+        traj_vel_lpf[i].ftOut(0);
     }
 }
 
@@ -137,7 +145,61 @@ void PVT_Ctr::disablePV(int jtId) {
     PV_enable[jtId]=0;
 }
 
+void PVT_Ctr::genTestTrajectory(double t){
+    const double start_time = 2; // starting time of the trajectory
+    const double sim_duration = 10; // duration of the trajectory
+    const double ramp_duration = 2.0; // time to ramp from 0 up to the joint center
+    const double omega = 2 * 3.14159265358979 / 4.0; // angular frequency, 2-second period
+    double traj_time{0};
+    this->motor_tor_des.assign(this->jointNum, 0); // Feedforward torque
 
+    if (t <= start_time) // before starting, just stay at 0
+    {
+        this->motor_pos_des.assign(this->jointNum, 0);
+        this->motor_vel_des.assign(this->jointNum, 0);
+        for (int i = 0; i<this->jointNum; i++)
+        {
+            traj_pos_lpf[i].ftOut(0); // keep the filters primed at 0 while idle
+            traj_vel_lpf[i].ftOut(0);
+        }
+    }
+    else
+    {
+        traj_time = t - start_time;
+
+        for (int i = 0; i<this->jointNum; i++)
+        {
+            double joint_Amplitude = std::max(0.0, 0.9 * (this->maxPos[i] - this->minPos[i]) / 2.0);
+            double joint_Center = (this->maxPos[i] + this->minPos[i]) / 2.0;
+
+            double raw_pos_des, raw_vel_des;
+            if (traj_time < ramp_duration)
+            {
+                // Ramp linearly from 0 up to the joint center over ramp_duration,
+                // instead of jumping straight into an off-center oscillation
+                raw_pos_des = joint_Center * (traj_time / ramp_duration);
+                raw_vel_des = joint_Center / ramp_duration;
+            }
+            else
+            {
+                // Generate a sinusoidal trajectory for each joint
+                // amplitude is taken at 0.9 of the joint motion range
+                double osc_time = traj_time - ramp_duration;
+                raw_pos_des = joint_Center + joint_Amplitude * sin(omega * osc_time);
+                raw_vel_des = joint_Amplitude * omega * cos(omega * osc_time);
+            }
+
+            // Low-pass filter the raw ramp/sinusoid reference so the switch between
+            // the two phases (and the trajectory's start) doesn't show up as a kink
+            this->motor_pos_des[i] = traj_pos_lpf[i].ftOut(raw_pos_des);
+            this->motor_vel_des[i] = traj_vel_lpf[i].ftOut(raw_vel_des);
+        }
+    }
+}
+
+//------------------------------
+// Printing function
+//------------------------------
 void PVT_Ctr::printPVTinfo()
 {
     std::printf("Number of joint: %d\n", this->jointNum);

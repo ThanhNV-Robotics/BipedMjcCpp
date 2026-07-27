@@ -1,7 +1,7 @@
 <mujoco model="scene">
-<include file="biped_robot_12dof.xml"/>
+<include file="biped_robot_fixedbase_12dof.xml"/>
 
-<statistic center="0 0 0.1" extent="0.8"/>
+<statistic center="0 0 0.4" extent="0.8"/>
 
 <visual>
   <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
@@ -21,8 +21,5 @@
 <worldbody>
   <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
   <geom name="floor" size="0 0 1" pos="0 0 0" type="plane" material="groundplane"/>
-  <!--geom type="box" size=".3 .6 .025" pos="0 0 .025" material="block" euler = "0 0 0.5" solref="0.002 0.2" friction="1 0.3 0.3"/>
-  <geom type="box" size=".3 .6 .025" pos="3 0 .025" material="block" euler = "0 0 -0.3" solref="0.002 0.2" friction="1 0.3 0.3"/>
-  <geom type="box" size=".3 .6 .025" pos="5 0 .025" material="block" euler = "0 0 0.2" solref="0.002 0.2" friction="1 0.3 0.3"/-->
 </worldbody>
 </mujoco>

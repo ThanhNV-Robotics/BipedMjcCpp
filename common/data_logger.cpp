@@ -12,6 +12,8 @@ DataLogger::DataLogger(std::string fileNameIn) {
     size_t lastSlashPos = filePath.find_last_of('/');
     fileFolder=filePath.substr(0, lastSlashPos);
     fileName=filePath.substr(lastSlashPos + 1);
+    if (!fileFolder.empty())
+        std::filesystem::create_directories(fileFolder); // fopen("w") won't create missing directories itself
     file_handler = quill::file_handler(filePath, "w");
     file_handler->set_pattern(QUILL_STRING("%(message)")); // timestamp's timezone
     quill::set_default_logger_handler(file_handler);

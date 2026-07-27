@@ -158,7 +158,7 @@ target_include_directories(core PUBLIC
   math
   sim_interface
 )
-target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads Eigen3::Eigen jsoncpp::jsoncpp quill::quill)
+target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads Eigen3::Eigen jsoncpp::jsoncpp quill::quill pinocchio::pinocchio)
 
 # ------------------------------------------------------------------
 # Tests
@@ -175,4 +175,7 @@ target_link_libraries(init_pinocchio PRIVATE pinocchio::pinocchio)
 add_executable(joint_pd_control tests/joint_control/joint_pd_control.cpp)
 target_link_libraries(joint_pd_control PRIVATE core dl)
 target_link_libraries(joint_pd_control PRIVATE pinocchio::pinocchio)
-# target_link_libraries(joint_pd_control PRIVATE pinocchio::pinocchio)
+
+add_executable(float_control demo/float_control.cpp)
+target_link_libraries(float_control PRIVATE core dl)
+target_link_libraries(float_control PRIVATE pinocchio::pinocchio)

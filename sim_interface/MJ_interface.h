@@ -18,6 +18,8 @@ public:
     std::vector<double> motor_pos;
     std::vector<double> motor_pos_Old;
     std::vector<double> motor_vel;
+    std::vector<double> motor_accel;
+    std::vector<double> motor_torque;
 
     std::vector<std::string> JointName = {}; // this will be initialized with constructor by parsing the json config file
 
@@ -29,11 +31,13 @@ public:
 
     std::vector<double> getJointPos ();
     std::vector<double> getJointVel ();
+    std::vector<double> getJointAccel ();
+    std::vector<double> getJointTorque ();
     void dataBusWrite (DataBus &busIn);
 
 
 private:
     mjModel *mj_model; // pointer to mjModel struct to read/write the data
     mjData *mj_data;   // pointer to mjData struct to read/write the data
-    std::vector<int> jntId_qpos, jntId_qvel, jntId_dctl;
+    std::vector<int> jntId_qpos, jntId_qvel, jntId_dctl; // joint id to read position, vel, acceleration, torque
 };

@@ -342,6 +342,10 @@ void UIctr::enableTracking() {
     isTrack=true;
 }
 
+void UIctr::disableTracking(){
+    isTrack = false;
+}
+
 UIctr::ButtonState UIctr::getButtonState() {
     ButtonState tmp=buttonRead;
     buttonRead.key_w= false;

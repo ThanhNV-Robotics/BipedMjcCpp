@@ -19,6 +19,7 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
+#include <filesystem>
 #include "Eigen/Dense"
 
 class DataLogger {

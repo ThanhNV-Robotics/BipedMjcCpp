@@ -21,6 +21,8 @@ MJ_Interface::MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char* j
 
     this->motor_pos.assign(this->jointNum,0);
     this->motor_vel.assign(this->jointNum,0);
+    this->motor_accel.assign(this->jointNum,0);
+    this->motor_torque.assign(this->jointNum,0);
     this->motor_pos_Old.assign(this->jointNum, 0);
 
     // Match joint id with the JointName list order
@@ -67,6 +69,8 @@ void MJ_Interface::updateSensorValues()
         this->motor_pos_Old[i] = this->motor_pos[i];
         this->motor_pos[i] = this->mj_data->qpos[this->jntId_qpos[i]];
         this->motor_vel[i] = this->mj_data->qvel[this->jntId_qvel[i]];
+        this->motor_accel[i] = this->mj_data->qacc[this->jntId_qvel[i]];
+        this->motor_torque[i] = this->mj_data->qfrc_actuator[this->jntId_qvel[i]];
     }
     return;
 }
@@ -79,6 +83,15 @@ std::vector<double> MJ_Interface::getJointPos()
 std::vector<double> MJ_Interface::getJointVel()
 {
     return this->motor_vel;
+}
+
+std::vector<double> MJ_Interface::getJointAccel()
+{
+    return this->motor_accel;
+}
+
+std::vector<double> MJ_Interface::getJointTorque() {
+    return this->motor_torque;
 }
 
 void MJ_Interface::setMotorsTorque(std::vector<double> &tauIn)

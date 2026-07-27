@@ -43,6 +43,8 @@ public:
     void printPVTinfo();
     void printTorqueOut();
 
+    void genTestTrajectory(double t);
+
     std::vector<double> motor_pos_des; // P des
     std::vector<double> motor_vel_des; // V des
     std::vector<double> motor_tor_des; // T des
@@ -57,6 +59,8 @@ public:
 
 private:
     std::vector<LPF_Fst> tau_out_lpf;
+    std::vector<LPF_Fst> traj_pos_lpf; // smooths genTestTrajectory's reference position
+    std::vector<LPF_Fst> traj_vel_lpf; // smooths genTestTrajectory's reference velocity
     std::vector<int> PV_enable;
     double sign(double in);
     std::vector<std::string> motorName; // joint names, populated from jsonPath's top-level keys in the constructor
