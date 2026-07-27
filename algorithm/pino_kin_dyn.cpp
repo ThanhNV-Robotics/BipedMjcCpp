@@ -305,10 +305,16 @@ Pin_KinDyn::computeInK_Leg(const Eigen::Matrix3d &Rdes_L, const Eigen::Vector3d 
     const pinocchio::SE3 oMdesR(Rdes_R, Pdes_R);
     // This model is legs-only (12 DOF: left leg 0-5, right leg 6-11).
     Eigen::VectorXd qIk = Eigen::VectorXd::Zero(model_biped_fixed.nv); // initial guess
-    Eigen::VectorXd pertInitial = Eigen::VectorXd::Constant(model_biped_fixed.nv, 0.05);
-    qIk += pertInitial;
-    // qIk[3] = -0.1; // left knee
-    // qIk[9] = -0.1; // right knee
+    // Eigen::VectorXd pertInitial = Eigen::VectorXd::Constant(model_biped_fixed.nv, 0.05);
+    // qIk += pertInitial;
+    qIk[3] = 0.1; // left knee
+    qIk[9] = 0.1; // right knee
+
+    qIk[0] = -0.08; // left hip pitch
+    qIk[6] = -0.08; // right hip pitch
+
+    qIk[5] = -0.05; // left hip roll
+    qIk[11] = -0.08; // right hip roll
 
     const double eps = 1e-4;
     const int IT_MAX = 100;

@@ -179,3 +179,7 @@ target_link_libraries(joint_pd_control PRIVATE pinocchio::pinocchio)
 add_executable(float_control demo/float_control.cpp)
 target_link_libraries(float_control PRIVATE core dl)
 target_link_libraries(float_control PRIVATE pinocchio::pinocchio)
+
+add_executable(walk_in_air demo/walk_in_air.cpp)
+target_link_libraries(walk_in_air PRIVATE core dl)
+target_link_libraries(walk_in_air PRIVATE pinocchio::pinocchio)

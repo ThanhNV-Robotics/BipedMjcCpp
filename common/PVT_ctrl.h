@@ -45,6 +45,12 @@ public:
 
     void genTestTrajectory(double t);
 
+    // Joint order matching motor_pos_des/motor_vel_des/motor_tor_des and every
+    // other per-joint vector below -- callers must map onto this order by
+    // name, not assume it matches any other model's/file's joint order (this
+    // one comes from jsoncpp's getMemberNames(), which sorts alphabetically).
+    const std::vector<std::string> &getMotorNames() const { return motorName; }
+
     std::vector<double> motor_pos_des; // P des
     std::vector<double> motor_vel_des; // V des
     std::vector<double> motor_tor_des; // T des
