@@ -20,36 +20,39 @@ struct DataBus
     const Eigen::Matrix3d fe_L_rot_L_off = (Eigen::MatrixXd(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1).finished(); // left foot-end R w.r.t to the body frame in offset posture
     const Eigen::Matrix3d fe_R_rot_L_off = (Eigen::MatrixXd(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1).finished();
 
-    // motors, sensors and states feedback
-    double rpy[3];
-    double fL[3];
-    double fR[3];
-    double basePos[3];
+    // joints, sensors and states feedback from MuJoCo simulator
+    double rpy[3]; // base orientation
+    double fL[3];  // Left feet position
+    double fR[3];  // Right feet positioin
+    double basePos[3]; // base position
     double baseLinVel[3]; // velocity of the basePos
     double baseAcc[3];    // baseAcc of the base link
     double baseAngVel[3]; // angular velocity of the base link
-    std::vector<double> motors_pos_cur;
-    std::vector<double> motors_vel_cur;
-    std::vector<double> motors_tor_cur;
-    Eigen::VectorXd FL_est, FR_est;
-    bool isdqIni;
+    std::vector<double> joint_pos_cur; // joint position (current/feedback)
+    std::vector<double> joint_vel_cur; // joint velocity (current/feedback)
+    std::vector<double> joint_tor_cur; // joint torque   (current/feedback)
+    Eigen::VectorXd FL_est, FR_est; // contact wrench at left and right foot computed from dynamic model
+    // bool isdqIni; // unused
 
     // PVT controls
-    std::vector<double> motors_pos_des;
-    std::vector<double> motors_vel_des;
-    std::vector<double> motors_tor_des;
-    std::vector<double> motors_tor_out;
+    std::vector<double> joint_pos_des;
+    std::vector<double> joint_vel_des;
+    std::vector<double> joint_tor_des;
+    std::vector<double> joint_tor_out;
 
     // states and key variables
-    Eigen::VectorXd q, dq, ddq;
+    // notation for WBC and MPC controller
+    Eigen::VectorXd q, dq, ddq; // robot joint state: position, vel, accel
     Eigen::VectorXd qOld;
-    Eigen::MatrixXd J_base, J_l, J_r, J_hd_l, J_hd_r, J_hip_link;
-    Eigen::MatrixXd dJ_base, dJ_l, dJ_r, dJ_hd_l, dJ_hd_r;
+    Eigen::MatrixXd J_base, J_l, J_r, J_hip_link; // Jacobian matrices: left/right foot, hip
+    Eigen::MatrixXd dJ_base, dJ_l, dJ_r; // time derivative of Jacobian matrices, computed analytically by pinocchio
     Eigen::MatrixXd Jcom_W; // jacobian of CoM, in world frame
-    Eigen::Vector3d pCoM_W;
-    Eigen::Vector3d fe_r_pos_W, fe_l_pos_W, base_pos, base_vel;
-    Eigen::Matrix3d fe_r_rot_W, fe_l_rot_W, base_rot; // in world frame
-    Eigen::Vector3d fe_r_pos_L, fe_l_pos_L;           // in Body frame
+    Eigen::Vector3d pCoM_W; // CoM position in World frame
+    Eigen::Vector3d fe_r_pos_W, fe_l_pos_W, base_pos, base_vel; // foot and base position in world frame
+    Eigen::Matrix3d fe_r_rot_W, fe_l_rot_W, base_rot; // foot and base rotation matrices in world frame
+    
+    // _L is for Local frame (w.r.t base link)
+    Eigen::Vector3d fe_r_pos_L, fe_l_pos_L;           // foot position in Body frame
     Eigen::Vector3d fe_r_vel_L, fe_l_vel_L;           // linear velocity in Body frame
     Eigen::Vector3d hip_link_pos;
     Eigen::Vector3d hip_r_pos_L, hip_l_pos_L;
@@ -59,15 +62,11 @@ struct DataBus
     Eigen::Vector3d fe_r_pos_L_cmd, fe_l_pos_L_cmd;
     Eigen::Matrix3d fe_r_rot_L_cmd, fe_l_rot_L_cmd;
 
-    Eigen::Vector3d hd_r_pos_W, hd_l_pos_W; // in world frame
-    Eigen::Matrix3d hd_r_rot_W, hd_l_rot_W;
-    Eigen::Vector3d hd_r_pos_L, hd_l_pos_L; // in body frame
-    Eigen::Matrix3d hd_r_rot_L, hd_l_rot_L;
-    Eigen::VectorXd qCmd, dqCmd;
-    Eigen::VectorXd tauJointCmd;
+    Eigen::VectorXd qCmd, dqCmd; // state position and vel cmd
+    Eigen::VectorXd tauJointCmd; // torque cmd
     Eigen::MatrixXd dyn_M, dyn_M_inv, dyn_C, dyn_Ag, dyn_dAg;
     Eigen::VectorXd dyn_G, dyn_Non;
-    Eigen::Vector3d base_omega_L, base_omega_W, base_rpy;
+    Eigen::Vector3d base_omega_L, base_omega_W, base_rpy; // angular velocity and roll-pitch-yaw
 
     Eigen::Vector3d slop;
     Eigen::Matrix<double, 3, 3> inertia;
@@ -161,13 +160,13 @@ struct DataBus
 
     DataBus(int model_nvIn) : model_nv(model_nvIn)
     {
-        motors_pos_cur.assign(model_nv - 6, 0);
-        motors_vel_cur.assign(model_nv - 6, 0);
-        motors_tor_out.assign(model_nv - 6, 0);
-        motors_tor_cur.assign(model_nv - 6, 0);
-        motors_tor_des.assign(model_nv - 6, 0);
-        motors_vel_des.assign(model_nv - 6, 0);
-        motors_pos_des.assign(model_nv - 6, 0);
+        joint_pos_cur.assign(model_nv - 6, 0);
+        joint_vel_cur.assign(model_nv - 6, 0);
+        joint_tor_out.assign(model_nv - 6, 0);
+        joint_tor_cur.assign(model_nv - 6, 0);
+        joint_tor_des.assign(model_nv - 6, 0);
+        joint_vel_des.assign(model_nv - 6, 0);
+        joint_pos_des.assign(model_nv - 6, 0);
         q = Eigen::VectorXd::Zero(model_nv + 1);
         qOld = Eigen::VectorXd::Zero(model_nv + 1);
         dq = Eigen::VectorXd::Zero(model_nv);
@@ -217,7 +216,7 @@ struct DataBus
         q(5) = quatNow.z();
         q(6) = quatNow.w();
         for (int i = 0; i < model_nv - 6; i++)
-            q(i + 7) = motors_pos_cur[i];
+            q(i + 7) = joint_pos_cur[i];
 
         Eigen::Vector3d vCoM_W;
         vCoM_W << baseLinVel[0], baseLinVel[1], baseLinVel[2];
@@ -226,7 +225,7 @@ struct DataBus
         //        dq.block<3,1>(3,0) << baseAngVel[0],baseAngVel[1],baseAngVel[2];
         for (int i = 0; i < model_nv - 6; i++)
         {
-            dq(i + 6) = motors_vel_cur[i];
+            dq(i + 6) = joint_vel_cur[i];
         }
 
         base_pos << q(0), q(1), q(2);
