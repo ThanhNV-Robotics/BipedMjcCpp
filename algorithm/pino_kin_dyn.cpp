@@ -7,6 +7,7 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 */
 #include "pino_kin_dyn.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -33,6 +34,14 @@ Pin_KinDyn::Pin_KinDyn(std::string urdf_pathIn)
     data_biped = pinocchio::Data(model_biped);
     data_biped_fixed = pinocchio::Data(model_biped_fixed);
     model_nv = model_biped.nv;
+
+    // model_biped_fixed.names[0] is "universe" (not a real joint); the rest,
+    // in order, are exactly the joint order used by qIk/IkRes::jointPosRes in
+    // computeInK_Leg (all single-DOF revolute joints in a simple chain, so
+    // joint id i corresponds directly to vector index i-1).
+    ikJointNames.clear();
+    for (int i = 1; i < model_biped_fixed.njoints; i++)
+        ikJointNames.push_back(model_biped_fixed.names[i]);
     J_l = Eigen::MatrixXd::Zero(6, model_nv);
     J_r = Eigen::MatrixXd::Zero(6, model_nv);
     J_l_body = Eigen::MatrixXd::Zero(6, model_biped_fixed.nv);
@@ -393,6 +402,22 @@ Pin_KinDyn::computeInK_Leg(const Eigen::Matrix3d &Rdes_L, const Eigen::Vector3d 
     }
     res.jointPosRes = qIk;
     return res;
+}
+
+std::vector<double> Pin_KinDyn::mapJointVecToOrder(const Eigen::VectorXd &vecIn, const std::vector<std::string> &targetOrder) const
+{
+    std::vector<double> out(targetOrder.size(), 0.0);
+    for (size_t i = 0; i < targetOrder.size(); i++)
+    {
+        auto it = std::find(ikJointNames.begin(), ikJointNames.end(), targetOrder[i]);
+        if (it == ikJointNames.end())
+        {
+            std::cerr << "Pin_KinDyn::mapJointVecToOrder: joint '" << targetOrder[i] << "' not found in ikJointNames" << std::endl;
+            continue;
+        }
+        out[i] = vecIn(std::distance(ikJointNames.begin(), it));
+    }
+    return out;
 }
 
 // must call computeDyn() first!

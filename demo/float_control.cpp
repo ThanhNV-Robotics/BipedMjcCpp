@@ -82,18 +82,12 @@ int main(int argc, const char **argv)
     auto resLeg = kinDynSolver.computeInK_Leg(fe_l_rot_des, fe_l_pos_L_des, fe_r_rot_des, fe_r_pos_L_des);
     std::cout << "IK solved \n";
 
-    // print the computed joint angles: model_biped_fixed's joint order is
-    // left leg (0-5) then right leg (6-11), matching biped_robot_12dof.urdf's
-    // own joint declaration order.
-    const std::vector<std::string> ikJointNames = {
-        "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
-        "left_knee_pitch_joint", "left_ankle_roll_joint", "left_ankle_pitch_joint",
-        "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
-        "right_knee_pitch_joint", "right_ankle_roll_joint", "right_ankle_pitch_joint"};
+    // print the computed joint angles: kinDynSolver.ikJointNames is model_biped_fixed's
+    // own joint order (left leg then right leg), read directly from the model.
     std::printf("IK status=%d itr=%d err_norm=%.6f\n", resLeg.status, resLeg.itr, resLeg.err.norm());
     for (int i = 0; i < resLeg.jointPosRes.size(); i++)
     {
-        std::printf("  %-25s % .5f rad (% .3f deg)\n", ikJointNames[i].c_str(),
+        std::printf("  %-25s % .5f rad (% .3f deg)\n", kinDynSolver.ikJointNames[i].c_str(),
                     resLeg.jointPosRes(i), resLeg.jointPosRes(i) * 180.0 / 3.14159265358979);
     }
 
@@ -106,24 +100,9 @@ int main(int argc, const char **argv)
     // logger.addIterm("motors_vel_cur",model_nv-6);
     // logger.finishItermAdding();
 
-    // Map the IK result onto PVT_Ctr's own joint order by name. ikJointNames
-    // (Pin_KinDyn) is hardcoded left-leg-then-right-leg; pvtCtr's order comes
-    // from jsoncpp's getMemberNames() on its JSON config, which sorts
-    // alphabetically -- these are NOT the same order, so a positional copy
-    // would silently send each angle to the wrong joint.
-    const std::vector<std::string> &pvtJointNames = pvtCtr.getMotorNames();
-    std::vector<double> motors_pos_des_mapped(pvtJointNames.size(), 0.0);
-    for (size_t pvtIdx = 0; pvtIdx < pvtJointNames.size(); pvtIdx++)
-    {
-        auto it = std::find(ikJointNames.begin(), ikJointNames.end(), pvtJointNames[pvtIdx]);
-        if (it == ikJointNames.end())
-        {
-            std::fprintf(stderr, "joint %s (from PVT config) not found in IK joint list\n", pvtJointNames[pvtIdx].c_str());
-            continue;
-        }
-        int ikIdx = std::distance(ikJointNames.begin(), it);
-        motors_pos_des_mapped[pvtIdx] = resLeg.jointPosRes(ikIdx);
-    }
+    // Map the IK result onto PVT_Ctr's own joint order by name (Pin_KinDyn's
+    // order and PVT_Ctr's alphabetical JSON-key order are not the same).
+    std::vector<double> motors_pos_des_mapped = kinDynSolver.mapJointVecToOrder(resLeg.jointPosRes, pvtCtr.getMotorNames());
 
     /// ----------------- sim Loop ---------------
     mjtNum simstart = mj_data->time;

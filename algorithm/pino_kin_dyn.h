@@ -39,6 +39,14 @@ public:
     pinocchio::Model model_biped;
     pinocchio::Model model_biped_fixed;
     int model_nv;
+
+    // Joint order matching model_biped_fixed and computeInK_Leg's
+    // IkRes::jointPosRes -- read directly from the Pinocchio model itself
+    // (model_biped_fixed.names), not hand-typed, so it can never drift out of
+    // sync with the URDF. This is NOT the same order PVT_Ctr/MJ_Interface use
+    // (alphabetical, from their JSON config's keys); use mapJointVecToOrder()
+    // to remap onto theirs (or any other) order by name.
+    std::vector<std::string> ikJointNames;
     pinocchio::JointIndex r_ankle_joint, l_ankle_joint, base_joint, r_hip_joint, l_hip_joint, r_hip_roll_joint, l_hip_roll_joint;
     pinocchio::JointIndex r_ankle_joint_fixed, l_ankle_joint_fixed, r_hip_joint_fixed, l_hip_joint_fixed;
     Eigen::VectorXd q, dq, ddq;
@@ -77,6 +85,12 @@ public:
     void computeJ_dJ();
     void computeDyn();
     IkRes computeInK_Leg(const Eigen::Matrix3d &Rdes_L, const Eigen::Vector3d &Pdes_L, const Eigen::Matrix3d &Rdes_R, const Eigen::Vector3d &Pdes_R);
+
+    // Remap a vector indexed by ikJointNames (e.g. IkRes::jointPosRes) onto
+    // an arbitrary target joint-name order (e.g. PVT_Ctr::getMotorNames()),
+    // by name -- never assume any two joint-order conventions coincide.
+    std::vector<double> mapJointVecToOrder(const Eigen::VectorXd &vecIn, const std::vector<std::string> &targetOrder) const;
+
     Eigen::VectorXd integrateDIY(const Eigen::VectorXd &qI, const Eigen::VectorXd &dqI);
     static Eigen::Quaterniond intQuat(const Eigen::Quaterniond &quat, const Eigen::Matrix<double, 3, 1> &w);
     void workspaceConstraint(Eigen::VectorXd &qFT, Eigen::VectorXd &tauJointFT);

@@ -21,6 +21,22 @@ GaitScheduler::GaitScheduler(double tSwingIn, double dtIn)
     motionState=DataBus::Stand;
     enableNextStep= false;
     touchDown = false;
+
+    // These are otherwise only sized inside the "if (!isIni && start_walk)"
+    // block in step() -- if start_walk is left false (e.g. to hold legState
+    // at DSt/double-support while just standing, since that block is what
+    // forces legState=firstleg), dataBusWrite() would assign these
+    // still-empty VectorXd into DataBus's fixed Eigen::Vector3d fields and
+    // crash (Eigen refuses to resize a fixed-size type to 0). Size them here
+    // unconditionally so dataBusWrite() is always safe to call.
+    fe_r_pos_W = Eigen::VectorXd::Zero(3);
+    fe_l_pos_W = Eigen::VectorXd::Zero(3);
+    swingStartPos_W = Eigen::VectorXd::Zero(3);
+    stanceStartPos_W = Eigen::VectorXd::Zero(3);
+    posHip_W = Eigen::VectorXd::Zero(3);
+    posST_W = Eigen::VectorXd::Zero(3);
+    hip_r_pos_W = Eigen::VectorXd::Zero(3);
+    hip_l_pos_W = Eigen::VectorXd::Zero(3);
 }
 
 void GaitScheduler::dataBusRead(const DataBus &robotState)

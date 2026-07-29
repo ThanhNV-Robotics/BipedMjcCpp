@@ -80,7 +80,7 @@
             <joint name="floating_base_joint" type="free" limited="false" actuatorfrclimited="false"/>
             <inertial pos="0.022E-3 0.011E-3 -9.359E-3" mass="5.721" fullinertia="1.338E-1 1.019E-1 6.278E-2 -7542.256E-9 8599.288E-9 8566.243E-9"/>
             <camera name="track" pos="1 0 1.5" xyaxes="0.78 -0.63 0 0.27 0.33 0.9"/>
-            <site name="torso_imu" type = "box" pos="0.0 0 0.0" euler="0 0 0" size="0.01 0.01 0.01" rgba="1 0 0 1"/>
+            <site name="imu" type = "box" pos="0.0 0 0.0" euler="0 0 0" size="0.01 0.01 0.01" rgba="1 0 0 1"/>
 
             <!--   Left leg kinematic chain  -->
             <body name="left_hip_pitch_link" pos="0 89.761E-3 -81.437E-3" euler="-15 0 0"> 
@@ -180,11 +180,14 @@
         <motor name="Right_Ank_Pitch_m" joint="right_ankle_pitch_joint" ctrlrange="-18 18" />       
     </actuator>
 
-    <sensor>
-        <framequat name="torso_quat" objtype="site" objname="torso_imu" />
-        <accelerometer name="torso_accel" site="torso_imu"/>
-        <gyro name="torso_gyro" site="torso_imu"/>
-    </sensor>
+  <sensor>
+      <framequat name="baselink-quat" objtype="site" objname="imu" />
+      <velocimeter name="baselink-velocity" site="imu" />
+      <gyro name="baselink-gyro" site="imu" />
+      <accelerometer name="baselink-baseAcc" site="imu" />
+      <!-- <touch name="lf-touch" site="lf-tc" />
+      <touch name="rf-touch" site="rf-tc" /> -->
+  </sensor>
 
     <keyframe>
         <!-- Standing pose: torso at defaultBaseHeight=0.75m, joints from reference.info defaultJointState -->

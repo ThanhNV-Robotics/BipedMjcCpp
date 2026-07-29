@@ -21,6 +21,21 @@ public:
     std::vector<double> motor_accel;
     std::vector<double> motor_torque;
 
+    double rpy[3]{0}; // roll,pitch and yaw of baselink
+    double yaw_simgle;
+	int	   yaw_N = 0;
+    double baseQuat[4]{0}; // in quat, mujoco order is [w,x,y,z], here we rearrange to [x,y,z,w]
+    double f3d[3][2]{0}; // 3D foot-end contact force, L for 1st col, R for 2nd col
+    double basePos[3]{0}; // position of baselink, in world frame
+    double baseAcc[3]{0};  // acceleration of baselink, in body frame
+    double baseAngVel[3]{0}; // angular velocity of baselink, in body frame
+    double baseLinVel[3]{0}; // linear velocity of baselink, in body frame
+    const std::string baseName="base_link";
+    const std::string orientationSensorName="baselink-quat"; // in quat, mujoco order is [w,x,y,z], here we rearrange to [x,y,z,w]
+    const std::string velSensorName="baselink-velocity";
+    const std::string gyroSensorName="baselink-gyro";
+    const std::string accSensorName="baselink-baseAcc";
+
     std::vector<std::string> JointName = {}; // this will be initialized with constructor by parsing the json config file
 
     MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char *jsonPath); // constructor
@@ -40,4 +55,13 @@ private:
     mjModel *mj_model; // pointer to mjModel struct to read/write the data
     mjData *mj_data;   // pointer to mjData struct to read/write the data
     std::vector<int> jntId_qpos, jntId_qvel, jntId_dctl; // joint id to read position, vel, acceleration, torque
+
+    int orientataionSensorId;
+    int velSensorId;
+    int gyroSensorId;
+    int accSensorId;
+    int baseBodyId;
+
+    double timeStep{0.001}; // second
+    bool isIni{false};
 };

@@ -44,16 +44,12 @@ int main(int argc, const char **argv)
     FootPlacement footPlacement;
     std::cout << "Init done\n";
 
-    // Pin_KinDyn's own joint order: left leg (0-5) then right leg (6-11),
-    // matching biped_robot_12dof.urdf's declaration order. This is NOT the
-    // same order MJ_Interface/PVT_Ctr use (alphabetical, from JSON keys) --
-    // every hand-off between Pin_KinDyn and the rest of the pipeline has to
-    // go through an explicit by-name remap, never a positional copy.
-    const std::vector<std::string> ikJointNames = {
-        "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
-        "left_knee_pitch_joint", "left_ankle_roll_joint", "left_ankle_pitch_joint",
-        "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
-        "right_knee_pitch_joint", "right_ankle_roll_joint", "right_ankle_pitch_joint"};
+    // kinDynSolver.ikJointNames is model_biped_fixed's own joint order (left
+    // leg then right leg), read directly from the model -- NOT the same order
+    // MJ_Interface/PVT_Ctr use (alphabetical, from JSON keys). Use
+    // kinDynSolver.mapJointVecToOrder() to remap between them, never a
+    // positional copy.
+    const std::vector<std::string> &ikJointNames = kinDynSolver.ikJointNames;
 
     // Precompute each joint's qpos/qvel address once (avoids a string lookup
     // every tick), used to read the robot's current joint state directly in
@@ -70,19 +66,6 @@ int main(int argc, const char **argv)
         ikQposAdr[i] = mj_model->jnt_qposadr[jid];
         ikDofAdr[i] = mj_model->jnt_dofadr[jid];
     }
-
-    const std::vector<std::string> &pvtJointNames = pvtCtr.getMotorNames();
-    auto mapIkToPvt = [&](const Eigen::VectorXd &ikVec) {
-        std::vector<double> out(pvtJointNames.size(), 0.0);
-        for (size_t i = 0; i < pvtJointNames.size(); i++)
-        {
-            auto it = std::find(ikJointNames.begin(), ikJointNames.end(), pvtJointNames[i]);
-            if (it == ikJointNames.end())
-                continue;
-            out[i] = ikVec(std::distance(ikJointNames.begin(), it));
-        }
-        return out;
-    };
 
     // The torso is rigidly welded to the world in this model (no free joint),
     // so its pose is constant. Pin_KinDyn's internal model always carries a
@@ -107,9 +90,9 @@ int main(int argc, const char **argv)
     auto resLeg = kinDynSolver.computeInK_Leg(identityRot, fe_l_pos_L_des, identityRot, fe_r_pos_L_des);
     std::printf("Standing IK status=%d itr=%d err=%.6f\n", resLeg.status, resLeg.itr, resLeg.err.norm());
 
-    RobotState.motors_pos_des = mapIkToPvt(resLeg.jointPosRes);
-    RobotState.motors_vel_des.assign(pvtJointNames.size(), 0.0);
-    RobotState.motors_tor_des.assign(pvtJointNames.size(), 0.0);
+    RobotState.motors_pos_des = kinDynSolver.mapJointVecToOrder(resLeg.jointPosRes, pvtCtr.getMotorNames());
+    RobotState.motors_vel_des.assign(pvtCtr.getMotorNames().size(), 0.0);
+    RobotState.motors_tor_des.assign(pvtCtr.getMotorNames().size(), 0.0);
 
     // Gait parameters. legState alternates on a fixed timer here instead of
     // via GaitScheduler's contact-force-based switching (see file header).
@@ -204,7 +187,7 @@ int main(int argc, const char **argv)
                 Eigen::Vector3d newRightPos = (legState == DataBus::LSt) ? swingTargetRel : stanceTargetRel;
 
                 auto resLegWalk = kinDynSolver.computeInK_Leg(identityRot, newLeftPos, identityRot, newRightPos);
-                RobotState.motors_pos_des = mapIkToPvt(resLegWalk.jointPosRes);
+                RobotState.motors_pos_des = kinDynSolver.mapJointVecToOrder(resLegWalk.jointPosRes, pvtCtr.getMotorNames());
             }
 
             pvtCtr.dataBusRead(RobotState);

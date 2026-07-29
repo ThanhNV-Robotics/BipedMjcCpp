@@ -112,6 +112,24 @@ set_target_properties(glfw::glfw PROPERTIES
 target_link_libraries(glfw::glfw INTERFACE dl Threads::Threads)
 
 # ------------------------------------------------------------------
+# qpOASES (prebuilt shared library vendored under third_party/qpOASES,
+# used by algorithm/mpc.cpp as the QP solver).
+# ------------------------------------------------------------------
+set(QPOASES_DIR ${CMAKE_SOURCE_DIR}/third_party/qpOASES)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(QPOASES_LIB ${QPOASES_DIR}/lin_arm64/libqpOASES.so)
+else()
+  set(QPOASES_LIB ${QPOASES_DIR}/lin_x64/libqpOASES.so)
+endif()
+
+add_library(qpOASES::qpOASES SHARED IMPORTED)
+set_target_properties(qpOASES::qpOASES PROPERTIES
+  IMPORTED_LOCATION ${QPOASES_LIB}
+  INTERFACE_INCLUDE_DIRECTORIES ${QPOASES_DIR}
+)
+
+# ------------------------------------------------------------------
 # Dependencies needed to build MuJoCo's own "simulate" GUI from source
 # ------------------------------------------------------------------
 find_package(OpenGL REQUIRED)
@@ -158,7 +176,7 @@ target_include_directories(core PUBLIC
   math
   sim_interface
 )
-target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads Eigen3::Eigen jsoncpp::jsoncpp quill::quill pinocchio::pinocchio)
+target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads Eigen3::Eigen jsoncpp::jsoncpp quill::quill pinocchio::pinocchio qpOASES::qpOASES)
 
 # ------------------------------------------------------------------
 # Tests
@@ -183,3 +201,7 @@ target_link_libraries(float_control PRIVATE pinocchio::pinocchio)
 add_executable(walk_in_air demo/walk_in_air.cpp)
 target_link_libraries(walk_in_air PRIVATE core dl)
 target_link_libraries(walk_in_air PRIVATE pinocchio::pinocchio)
+
+add_executable(walk_wbc demo/walk_wbc.cpp)
+target_link_libraries(walk_wbc PRIVATE core dl)
+target_link_libraries(walk_wbc PRIVATE pinocchio::pinocchio)
