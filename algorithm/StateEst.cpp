@@ -379,7 +379,7 @@ void StateEst::setF(DataBus &Data)
     torJoint = Eigen::VectorXd::Zero(model_nv - 6);
     for (int i = 0; i < model_nv - 6; i++)
     {
-        torJoint[i] = Data.motors_tor_cur[i];
+        torJoint[i] = Data.joint_tor_cur[i];
     }
     dyn_M = Data.dyn_M;
     dyn_Non = Data.dyn_Non;

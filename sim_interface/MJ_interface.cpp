@@ -133,8 +133,8 @@ void MJ_Interface::setMotorsTorque(std::vector<double> &tauIn)
 void MJ_Interface::dataBusWrite(DataBus &busIn)
 {
     // update to data bus so other controller can read motor states through data bus
-    busIn.motors_pos_cur = motor_pos;
-    busIn.motors_vel_cur = motor_vel;
+    busIn.joint_pos_cur = motor_pos;
+    busIn.joint_vel_cur = motor_vel;
 
     busIn.rpy[0] = rpy[0];
     busIn.rpy[1] = rpy[1];

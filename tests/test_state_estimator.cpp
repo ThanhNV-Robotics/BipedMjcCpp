@@ -18,7 +18,7 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include "data_logger.h"
 #include "useful_math.h"
 
-#include "StateEst.h"
+#include "MyStateEstimator.h"
 
 
 //************************
@@ -71,32 +71,12 @@ int main(int argc, const char** argv)
 
     DataBus RobotState(kinDynSolver.model_nv); // data bus
 
-    // WBC_priority(int model_nv_In, int QP_nvIn, int QP_ncIn, double miu_In, double dt);
-    // QP_nv = 6+12 number of decision variables that the QP optimizes over
-    // 6:a correction to the floating base's acceleration (delta_ddq/delta_r — the 6 DOF of the torso's free-flyer joint: 3 linear + 3 angular).
-    // 12: a correction to the contact reaction forces at both feet (delta_Fr — 6 per foot: 3 force + 3 moment,
-    // Fr_ff is explicitly documented as "12*1, [fe_L, fe_R]" in the header).
-    // QP_ncIn: number of constraints
-    // double miu_In is the friction coefficient to build friction cone constraint
-    // WBC_priority WBC_solv(kinDynSolver.model_nv, 18, 22, 0.7, mj_model->opt.timestep); // WBC solver
-    
-    
-    // GaitScheduler gaitScheduler(0.4, mj_model->opt.timestep); // gait scheduler
-    // GaitScheduler::step() re-triggers its "first step" init block every
-    // tick while motionState==Stand (isIni gets reset then immediately
-    // re-satisfies "if (!isIni && start_walk)"), which would force
-    // legState=LSt (single-leg stance) forever unless start_walk is off.
-    // Leave this false until actually starting to walk (GaitScheduler::start()
-    // sets it back to true) -- so legState stays at its default DSt
-    // (double support, both feet in contact) while just standing.
-    // gaitScheduler.start_walk = false;
-
     PVT_Ctr pvtCtr(mj_model->opt.timestep,joint_ctrl_config_path.c_str());// PVT joint control
     
     // FootPlacement footPlacement; // foot-placement planner
     // JoyStickInterpreter jsInterp(mj_model->opt.timestep); // desired baselink velocity generator
     DataLogger logger("record/wbc_walk_control.log"); // data logger
-    StateEst StateModule(mj_model->opt.timestep);
+    StateEstimator state_estimator = StateEstimator(mj_model->opt.timestep);
 
     // variables ini
     double stand_legLength = 0.75; // desired baselink height
@@ -165,6 +145,21 @@ int main(int argc, const char** argv)
     double simTime = mj_data->time;
     double startSteppingTime=3;
     double startWalkingTime=5;
+    int count = 0;
+
+    std::vector<int> stateUiQposAdr_motorOrder(mj_interface.JointName.size());
+    std::vector<int> stateUiQvelAdr_motorOrder(mj_interface.JointName.size());
+    for (size_t i = 0; i < mj_interface.JointName.size(); i++)
+    {
+        int jid = mj_name2id(stateUI_model, mjOBJ_JOINT, mj_interface.JointName[i].c_str());
+        stateUiQposAdr_motorOrder[i] = stateUI_model->jnt_qposadr[jid];
+        stateUiQvelAdr_motorOrder[i] = stateUI_model->jnt_dofadr[jid];
+    }
+
+    // for ramping the standing
+    const double rampDuration = 2.0;
+    double rampFrac = std::min(simTime / rampDuration, 1.0);
+    Eigen::VectorXd rampedJointPos = rampFrac * resLeg.jointPosRes;
 
     // init UI: GLFW
     uiController.iniGLFW();
@@ -189,63 +184,50 @@ int main(int argc, const char** argv)
             uiController.applyPerturbation();
 
             simTime=mj_data->time;
-            // printf("-------------%.3f s------------\n",simTime);
+            // update robot state from mujoco simulator
             mj_interface.updateSensorValues();
             mj_interface.dataBusWrite(RobotState);
 
-            StateModule.set(RobotState);
-            StateModule.update();
-            StateModule.get(RobotState); // overwrites RobotState.q(0..6)/base_pos/base_rot/base_rpy with the estimate
+            state_estimator.getSensorMeansurement(RobotState);
+            Eigen::Matrix<double, 4,1> imu_quat = state_estimator.getImuquaternion();
+            // pass through stateUI_data
+            stateUI_data->qpos[3] = imu_quat(3); // w
+            stateUI_data->qpos[4] = imu_quat(0); // x
+            stateUI_data->qpos[5] = imu_quat(1); // y
+            stateUI_data->qpos[6] = imu_quat(2); // z
 
-            // ---- visualize the estimate: write it into stateUI_data and run FK ----
-            // position: matches directly (Pinocchio and MuJoCo both list it first)
-            stateUI_data->qpos[0] = RobotState.q(0);
-            stateUI_data->qpos[1] = RobotState.q(1);
-            stateUI_data->qpos[2] = RobotState.q(2);
-            // orientation: Pinocchio stores (x,y,z,w) at q(3..6); MuJoCo's qpos wants (w,x,y,z)
-            stateUI_data->qpos[3] = RobotState.q(6);
-            stateUI_data->qpos[4] = RobotState.q(3);
-            stateUI_data->qpos[5] = RobotState.q(4);
-            stateUI_data->qpos[6] = RobotState.q(5);
-            // joints: the estimator doesn't touch these -- show the real
-            // (measured) joint angles, read directly by name off the actual
-            // simulated robot, not through RobotState.q's mismatched order.
-            for (size_t i = 0; i < kinDynSolver.ikJointNames.size(); i++)
-                stateUI_data->qpos[stateUiQposAdr[i]] = mj_data->qpos[mjQposAdr[i]];
-            mj_forward(stateUI_model, stateUI_data); // kinematics only, no dynamics step
-
-            // Enter here functions to send actuator commands, like:
-            // arm-l: 0-6, arm-r: 7-13, head: 14,15, waist: 16-18, leg-l: 19-24, leg-r: 25-30
-            if (simTime > startWalkingTime) {
-                // jsInterp.setWzDesLPara(0, 1);
-                // jsInterp.setVxDesLPara(xv_des, 2.0); // jsInterp.setVxDesLPara(0.9,1);
-                // RobotState.motionState = DataBus::Walk; // start walking
-            }
-
-            // // get the final joint command
-            if (simTime<=startSteppingTime){
-                // Ramp linearly from 0 to the IK-solved standing pose over
-                // rampDuration seconds, rather than stepping straight to it
-                // at t=0 -- a step here would be a large sudden position
-                // error for PVT_Ctr's PD loop, i.e. a torque impulse.
-                const double rampDuration = 2.0;
-                double rampFrac = std::min(simTime / rampDuration, 1.0);
-                Eigen::VectorXd rampedJointPos = rampFrac * resLeg.jointPosRes;
-                RobotState.joint_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
-                RobotState.joint_vel_des= joint_vel_des;
-                RobotState.joint_tor_des= joint_tau_des;
-            }
-            else
+            Eigen::Matrix<double, 12,1> qj_est = state_estimator.get_qj();
+            Eigen::Matrix<double, 12,1> qjd_est = state_estimator.get_qjd();
+            for (size_t i = 0; i < mj_interface.JointName.size(); i++)
             {
-
+                stateUI_data->qpos[stateUiQposAdr_motorOrder[i]] = qj_est(i);
+                stateUI_data->qvel[stateUiQvelAdr_motorOrder[i]] = qjd_est(i);
             }
 
-            pvtCtr.dataBusRead(RobotState);
-            pvtCtr.calMotorsPVT();
-            
-            pvtCtr.dataBusWrite(RobotState);
-            mj_interface.setMotorsTorque(RobotState.joint_tor_out);
+            mj_forward(stateUI_model, stateUI_data);
 
+            rampFrac = std::min(simTime / rampDuration, 1.0);
+            rampedJointPos = rampFrac * resLeg.jointPosRes;
+            RobotState.joint_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
+            RobotState.joint_vel_des= joint_vel_des;
+            RobotState.joint_tor_des= joint_tau_des;
+
+            pvtCtr.dataBusRead(RobotState); // to update joint command
+            pvtCtr.calMotorsPVT(); // calculate joint torque
+            
+            pvtCtr.dataBusWrite(RobotState); // set to RobotState
+            mj_interface.setMotorsTorque(RobotState.joint_tor_out); // Set joint torque to mujoco
+
+            // printing
+            count++;
+            if (count >= 100)
+            {
+                count = 0;
+                std::printf("quat w: %.3f\n", imu_quat(3));
+                std::printf("quat x: %.3f\n", imu_quat(0));
+                std::printf("quat y: %.3f\n", imu_quat(1));
+                std::printf("quat z: %.3f\n", imu_quat(2));
+            }
         }
 
         uiController.updateScene();

@@ -21,6 +21,12 @@ struct DataBus
     const Eigen::Matrix3d fe_R_rot_L_off = (Eigen::MatrixXd(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1).finished();
 
     // joints, sensors and states feedback from MuJoCo simulator
+    // in a real robot, we have following feedback:
+    // joint_pos_cur, joint_vel_cur, joint_tor_cur (from motor driver)
+    // baseAcc[3] from IMU (local base frame)
+    // base_quaternion/rpy from IMU w.r.t global frame
+    // baseAngVel from IMU w.r.t local IMU/base frame
+    
     double rpy[3]; // base orientation
     double fL[3];  // Left feet position
     double fR[3];  // Right feet positioin
@@ -73,7 +79,7 @@ struct DataBus
 
     // state EST
     Eigen::Matrix<double, 3, 1> base_pos_est, base_vel_est;
-    Eigen::Matrix<double, 3, 1> eul_est, omegaW_est;
+    Eigen::Matrix<double, 3, 1> eul_est, omegaW_est; // base orientation (euler angles) and angular velocity
     Eigen::Matrix<double, 3, 1> fe_l_pos_W_est, fe_r_pos_W_est;
     Eigen::Matrix<double, 3, 1> delta_acc;
     Eigen::Matrix<double, 3, 1> freeAcc;

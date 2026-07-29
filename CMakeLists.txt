@@ -198,10 +198,10 @@ add_executable(float_control demo/float_control.cpp)
 target_link_libraries(float_control PRIVATE core dl)
 target_link_libraries(float_control PRIVATE pinocchio::pinocchio)
 
-add_executable(walk_in_air demo/walk_in_air.cpp)
-target_link_libraries(walk_in_air PRIVATE core dl)
-target_link_libraries(walk_in_air PRIVATE pinocchio::pinocchio)
-
 add_executable(walk_wbc demo/walk_wbc.cpp)
 target_link_libraries(walk_wbc PRIVATE core dl)
 target_link_libraries(walk_wbc PRIVATE pinocchio::pinocchio)
+
+add_executable(test_state_estimator tests/test_state_estimator.cpp)
+target_link_libraries(test_state_estimator PRIVATE core dl)
+target_link_libraries(test_state_estimator PRIVATE pinocchio::pinocchio)

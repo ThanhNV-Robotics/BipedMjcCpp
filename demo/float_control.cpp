@@ -63,12 +63,12 @@ int main(int argc, const char **argv)
     std::printf("Model nv: %d \n", model_nv); // 18
 
     // // ini position and posture for foot-end
-    std::vector<double> motors_pos_des(model_nv - 6, 0); //=12, -6 to exclude the floating base dof in pinocchio model
-    std::vector<double> motors_pos_cur(model_nv - 6, 0);
-    std::vector<double> motors_vel_des(model_nv - 6, 0);
-    std::vector<double> motors_vel_cur(model_nv - 6, 0);
-    std::vector<double> motors_tau_des(model_nv - 6, 0);
-    std::vector<double> motors_tau_cur(model_nv - 6, 0);
+    std::vector<double> joint_pos_des(model_nv - 6, 0); //=12, -6 to exclude the floating base dof in pinocchio model
+    std::vector<double> joint_pos_cur(model_nv - 6, 0);
+    std::vector<double> joint_vel_des(model_nv - 6, 0);
+    std::vector<double> joint_vel_cur(model_nv - 6, 0);
+    std::vector<double> joint_tau_des(model_nv - 6, 0);
+    std::vector<double> joint_tau_cur(model_nv - 6, 0);
     Eigen::Vector3d fe_l_pos_L_des = {0.0, RobotState.width_hips / 2, -stand_legLength};  // desired left feet pos
     Eigen::Vector3d fe_r_pos_L_des = {0.0, -RobotState.width_hips / 2, -stand_legLength}; // desired right feet pos
 
@@ -93,16 +93,16 @@ int main(int argc, const char **argv)
 
     // // register variable name for data logger
     // logger.addIterm("simTime", 1);
-    // logger.addIterm("motors_pos_cur",model_nv-6);
-    // logger.addIterm("motors_pos_des",model_nv-6);
-    // logger.addIterm("motors_tau_cur",model_nv-6);
-    // logger.addIterm("motors_vel_des",model_nv-6);
-    // logger.addIterm("motors_vel_cur",model_nv-6);
+    // logger.addIterm("joint_pos_cur",model_nv-6);
+    // logger.addIterm("joint_pos_des",model_nv-6);
+    // logger.addIterm("joint_tau_cur",model_nv-6);
+    // logger.addIterm("joint_vel_des",model_nv-6);
+    // logger.addIterm("joint_vel_cur",model_nv-6);
     // logger.finishItermAdding();
 
     // Map the IK result onto PVT_Ctr's own joint order by name (Pin_KinDyn's
     // order and PVT_Ctr's alphabetical JSON-key order are not the same).
-    std::vector<double> motors_pos_des_mapped = kinDynSolver.mapJointVecToOrder(resLeg.jointPosRes, pvtCtr.getMotorNames());
+    std::vector<double> joint_pos_des_mapped = kinDynSolver.mapJointVecToOrder(resLeg.jointPosRes, pvtCtr.getMotorNames());
 
     /// ----------------- sim Loop ---------------
     mjtNum simstart = mj_data->time;
@@ -110,9 +110,9 @@ int main(int argc, const char **argv)
 
     // Hold at the IK-solved configuration: constant position target, zero
     // feedforward velocity/torque.
-    RobotState.motors_pos_des = motors_pos_des_mapped;
-    RobotState.motors_vel_des = motors_vel_des;
-    RobotState.motors_tor_des = motors_tau_des;
+    RobotState.joint_pos_des = joint_pos_des_mapped;
+    RobotState.joint_vel_des = joint_vel_des;
+    RobotState.joint_tor_des = joint_tau_des;
 
     // init UI: GLFW
     uiController.iniGLFW();
@@ -140,7 +140,7 @@ int main(int argc, const char **argv)
                 pvtCtr.dataBusWrite(RobotState);
             }
 
-            mj_interface.setMotorsTorque(RobotState.motors_tor_out);
+            mj_interface.setMotorsTorque(RobotState.joint_tor_out);
         }
 
         uiController.updateScene();

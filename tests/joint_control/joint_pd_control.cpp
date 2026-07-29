@@ -120,7 +120,7 @@ int main (int argc, char** argv)
             // // Compute joint torque
             pvtCtr.calMotorsPVT();
             pvtCtr.dataBusWrite(RobotState); // write the joint toque cmd to data bus
-            mj_interface.setMotorsTorque(RobotState.motors_tor_out);
+            mj_interface.setMotorsTorque(RobotState.joint_tor_out);
             
             count ++;
             if (count >= 100 )
