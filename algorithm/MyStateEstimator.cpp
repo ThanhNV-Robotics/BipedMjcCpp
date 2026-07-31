@@ -1,7 +1,7 @@
 #include "MyStateEstimator.h"
 
 // constructor
-StateEstimator::StateEstimator(double dt)
+StateEstimator::StateEstimator(double dt, bool verbose) // verbose is option to print out filter param or note
 {
     // ------------------------
     // Init Measurement vars
@@ -16,6 +16,34 @@ StateEstimator::StateEstimator(double dt)
 
     imu_quaternion_ << 0, 0, 0, 1; // pinocchio style (x,y,z,w), identity Rotation matrix
 
+    // Init Kalman filter
+    // state vector:
+    // x = [base_pos(3), base linear velocity(3), foot position(dim_contact_)]
+    int dim_state = 6 + dim_contact_; // base_pos + base_vel + feet positions
+    Eigen::Matrix<double , 3, 3> I = Eigen::Matrix<double, 3 ,3>::Identity(); // Identity matrix
+
+    // Init matrices
+    this->A_ = Eigen::MatrixXd::Identity(dim_state, dim_state);
+    this->A_.block<3,3>(0,3) = dt*I;
+
+    this->B_ = Eigen::MatrixXd::Zero(dim_state, 3);
+    this->B_.block<3,3>(0,0) = dt*dt*I;
+    this->B_.block<3,3>(3,0) = dt*I;
+
+    // Init matrix C
+    for (int i = 0; i < this->num_contact_; i++)
+    {
+        this->C_.block<3,3>
+    }
+
+
+    if (verbose)
+    {
+        // print out kalman filter paramter for checking
+        std::cout << "dim_state = " << dim_state << std::endl;
+        std::cout << "A_ =\n" << this->A_ << std::endl;
+        std::cout << "B_ =\n" << this->B_ << std::endl;
+    }
 }
 
 void StateEstimator::getSensorMeansurement (DataBus& Data)

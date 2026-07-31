@@ -76,7 +76,7 @@ int main(int argc, const char** argv)
     // FootPlacement footPlacement; // foot-placement planner
     // JoyStickInterpreter jsInterp(mj_model->opt.timestep); // desired baselink velocity generator
     DataLogger logger("record/wbc_walk_control.log"); // data logger
-    StateEstimator state_estimator = StateEstimator(mj_model->opt.timestep);
+    StateEstimator state_estimator = StateEstimator(mj_model->opt.timestep, true);
 
     // variables ini
     double stand_legLength = 0.75; // desired baselink height
@@ -198,6 +198,7 @@ int main(int argc, const char** argv)
 
             Eigen::Matrix<double, 12,1> qj_est = state_estimator.get_qj();
             Eigen::Matrix<double, 12,1> qjd_est = state_estimator.get_qjd();
+
             for (size_t i = 0; i < mj_interface.JointName.size(); i++)
             {
                 stateUI_data->qpos[stateUiQposAdr_motorOrder[i]] = qj_est(i);
@@ -222,11 +223,11 @@ int main(int argc, const char** argv)
             count++;
             if (count >= 100)
             {
-                count = 0;
-                std::printf("quat w: %.3f\n", imu_quat(3));
-                std::printf("quat x: %.3f\n", imu_quat(0));
-                std::printf("quat y: %.3f\n", imu_quat(1));
-                std::printf("quat z: %.3f\n", imu_quat(2));
+                // count = 0;
+                // std::printf("quat w: %.3f\n", imu_quat(3));
+                // std::printf("quat x: %.3f\n", imu_quat(0));
+                // std::printf("quat y: %.3f\n", imu_quat(1));
+                // std::printf("quat z: %.3f\n", imu_quat(2));
             }
         }
 

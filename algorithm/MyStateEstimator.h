@@ -10,7 +10,7 @@ class StateEstimator
 {
     public:
         
-        StateEstimator(double dt); //Constructor, input: sampling time dt
+        StateEstimator(double dt, bool verbose ); //Constructor, input: sampling time dt
         void getSensorMeansurement (DataBus& Data); //
         // in our biped 12-dof robot, measurement includes:
         // joint states: position, velocity, torque
@@ -32,6 +32,17 @@ class StateEstimator
         Eigen::Matrix<double, 3,1> imu_rpy_; // imu roll, pitch, yaw
         
         
-        Eigen::Matrix<double, 3,1> base_pos_est_, base_linearVel_est_;      
+        Eigen::Matrix<double, 3,1> base_pos_est_, base_linearVel_est_;  
+        
+        // Kalman Filter for base position and linear velocity estimation
+        // Prediction model:
+        // x_k+1 = A_*x_k + B_*a_k
+        // y_k = C_*x_k + v
+        // where a_k is the imu acceleration w.r.t world frame
+        // v process noise
+        Eigen::Matrix<double, -1, -1> A_, B_, C_, Q_, P_, R_;
+        Eigen::Matrix<double, -1, -1> x_hat_, ps_, vs_;
+        const int num_contact_ = 2; // 2 contact leg
+        const int dim_contact_ = 3*this->num_contact_; // dim 3 is the feet cartein position
 
 };
