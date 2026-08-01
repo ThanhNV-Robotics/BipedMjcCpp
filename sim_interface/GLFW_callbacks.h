@@ -56,6 +56,10 @@ public:
     void createWindow(const char * windowTitle, bool saveVideo);
     void updateScene();
 
+    // real-time sensor plot
+    void initSensorFigure(const char* title, const char* lineNames[], const float lineColors[][3], int numLines);
+    void updateSensorFigure(double time, const double* values, int numLines);
+
     // keyboard callback
     void Keyboard(int key, int scancode, int act, int mods);
     // mouse button callback
@@ -100,4 +104,9 @@ private:
     mjvScene scn;                       // abstract scene
     mjrContext con;                     // custom GPU context
     mjvPerturb pert;                    // mouse perturbation / selection state
+
+    // realt-time sensor plot
+    mjvFigure figSensor;
+    bool sensorFigureIni{false};
+    static constexpr int sensorFigMaxPnt = 150; // rolling window length, in pushed samples
 };

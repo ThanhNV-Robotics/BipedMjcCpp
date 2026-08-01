@@ -19,31 +19,61 @@ StateEstimator::StateEstimator(double dt, bool verbose) // verbose is option to 
     // Init Kalman filter
     // state vector:
     // x = [base_pos(3), base linear velocity(3), foot position(dim_contact_)]
-    int dim_state = 6 + dim_contact_; // base_pos + base_vel + feet positions
     Eigen::Matrix<double , 3, 3> I = Eigen::Matrix<double, 3 ,3>::Identity(); // Identity matrix
 
     // Init matrices
-    this->A_ = Eigen::MatrixXd::Identity(dim_state, dim_state);
+    this->A_ = Eigen::MatrixXd::Identity(this->dimState_, this->dimState_);
     this->A_.block<3,3>(0,3) = dt*I;
 
-    this->B_ = Eigen::MatrixXd::Zero(dim_state, 3);
+    this->B_ = Eigen::MatrixXd::Zero(this->dimState_, 3);
     this->B_.block<3,3>(0,0) = dt*dt*I;
     this->B_.block<3,3>(3,0) = dt*I;
 
     // Init matrix C
-    for (int i = 0; i < this->num_contact_; i++)
+    // measurement vector, stacked per contact i = 0..numContact_-1:
+    //   rows [0            : dimContact_)          : p_foot_i - p_base   = [ I_3, 0, -I_3 ] (foot position, 6)
+    //   rows [dimContact_   : 2*dimContact_)        : v_base             = [ 0, I_3,  0   ] (foot velocity, 6)
+    //   rows [2*dimContact_ : 2*dimContact_+numContact_) : p_foot_i.z    = [ 0, 0,  H    ] (foot height, 2)
+    // dimObserve_ = 2*dimContact_ + numContact_ = 14
+    this->C_ = Eigen::MatrixXd::Zero(this->dimObserve_, this->dimState_);
+
+    for (Eigen::Index i = 0; i < this->numContact_; ++i)
     {
-        this->C_.block<3,3>
+        // position-residual rows for foot i: [ I_3, 0, -I_3 ]
+        this->C_.block<3, 3>(3 * i, 0) = Eigen::Matrix3d::Identity();
+        this->C_.block<3, 3>(3 * i, 6 + 3 * i) = -Eigen::Matrix3d::Identity();
+
+        // velocity-residual rows for foot i: [ 0, I_3, 0 ]
+        this->C_.block<3, 3>(this->dimContact_ + 3 * i, 3) = Eigen::Matrix3d::Identity();
+
+        // height-residual row for foot i: H = [0, 0, 1] picking foot_i_pos.z
+        this->C_(2 * this->dimContact_ + i, 6 + 3 * i + 2) = 1.0;
     }
 
+    // construct Q, P, R vector
+    this->Q_ = Eigen::MatrixXd::Identity(this->dimState_, this->dimState_); // Process noise covariance
+    this->P_ = 100*this->Q_; //Error covariance matrix
+    this->R_ = Eigen::MatrixXd::Identity(this->dimObserve_, this->dimObserve_);
+
+    this->feetHeights_.setZero(this->numContact_); // init footh height to [0,0]
 
     if (verbose)
     {
         // print out kalman filter paramter for checking
-        std::cout << "dim_state = " << dim_state << std::endl;
+        std::cout << "dim_state = " << this->dimState_ << std::endl;
         std::cout << "A_ =\n" << this->A_ << std::endl;
         std::cout << "B_ =\n" << this->B_ << std::endl;
+        std::cout << "C_ =\n" << this->C_ << std::endl;
+
+        std::cout << "Q_ =\n" << this->Q_ << std::endl;
+        std::cout << "P_ =\n" << this->P_ << std::endl;
+        std::cout << "R_ =\n" << this->R_ << std::endl;
     }
+}
+
+void StateEstimator::update()
+{
+    // check the leg contact status
 }
 
 void StateEstimator::getSensorMeansurement (DataBus& Data)

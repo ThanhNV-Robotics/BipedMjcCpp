@@ -77,6 +77,7 @@
         <!--   Link0_Torso -->
         <body name="link0_torso" pos="0 0 0.80" euler="0 0 0">
             <geom type="mesh" class="visual" mesh="link0_torso" />
+            <geom class="collision" size="0.09 0.170 0.170" pos="0 0 0.15" type="box" />
             <joint name="floating_base_joint" type="free" limited="false" actuatorfrclimited="false"/>
             <inertial pos="0.022E-3 0.011E-3 -9.359E-3" mass="5.721" fullinertia="1.338E-1 1.019E-1 6.278E-2 -7542.256E-9 8599.288E-9 8566.243E-9"/>
             <camera name="track" pos="1 0 1.5" xyaxes="0.78 -0.63 0 0.27 0.33 0.9"/>
@@ -86,21 +87,25 @@
             <body name="left_hip_pitch_link" pos="0 89.761E-3 -81.437E-3" euler="-15 0 0"> 
                 <joint type="hinge" name="left_hip_pitch_joint" axis="0 1 0" pos="0 0 0" range="-60 60" class = "AK109_actuator"/>
                 <geom type="mesh" class="visual" mesh="left_hip_pitch_link" />
+                <geom class="collision" size="0.05 0.06 0.05" pos="0 0.065 0" type="box" />
                 <inertial pos="5.535E-3 59.218E-3 0.579E-3" mass="1.764" fullinertia="3.317E-3 2.287E-3 3.489E-3 -1.532E-4 5446.612E-9 1125.189E-9" />              
                     
                     <body name="left_hip_roll_link" pos="0 75E-3 0" euler="15 0 0">
                         <joint type="hinge" name="left_hip_roll_joint" axis="1 0 0" pos="0 0 0" range="-45 60" class = "AK109_actuator"/>
                         <geom type="mesh" class="visual" mesh="left_hip_roll_link" />
+                        <geom class="collision" size="0.05 0.04 0.04" pos="0 0 -0.105" type="box" />
                         <inertial pos="0.016E-3 -0.136E-3 -73.241E-3" mass="1.2918" fullinertia="2.359E-3 3.153E-3 1.975E-3 -927.06E-9 -3429.47E-9 -927.06E-9" />
                             
                             <body name="left_hip_yaw_link" pos="0 0 -120.5E-3" euler="0 0 0">
                                 <joint type="hinge" name="left_hip_yaw_joint" axis="0 0 1" pos="0 0 0" range="-45 45" class = "AK7010_actuator"/>
                                 <geom type="mesh" class="visual" mesh="left_hip_yaw_link" />
+                                <geom class="collision" size="0.06 0.05 0.05" pos="0 -0.01 -0.2" type="box" />
                                 <inertial pos="-0.314E-3 -13.334E-3 -166.036E-3" mass="1.983" fullinertia="1.165E-2 1.208E-2 2.085E-3 26778.277E-9 -32964.406E-9 -9.808E-4" />
 
                                 <body name="left_knee_link" pos="0 0 -203.5E-3" euler="0 0 0">
                                     <joint type="hinge" name="left_knee_pitch_joint" axis="0 1 0" pos="0 0 0" range="-10 120" class = "AK109_actuator"/>
                                     <geom type="mesh" class="visual" mesh="left_knee_link" />
+                                    <geom class="collision" size="0.045 0.04 0.1" pos="0.01 0 -0.2" type="box" />
                                     <inertial pos="9.7E-3 3.585E-3 -164.623E-3" mass="1.894" fullinertia="1.720E-2 1.702E-2 1.510E-3 31715.102E-9 8.973E-4 -8.846E-4" />
                                          
                                          <body name="left_ankle_roll_link" pos="0 0 -335E-3" euler="0 0 0">
@@ -115,6 +120,9 @@
                                                 
                                                     <!-- This geom is for collision -->
                                                     <geom name="l_foot1" class="foot1" />
+
+                                                    <!-- This site is for touch sensor -->
+                                                    <site name="lf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 1" />
                                                 
                                                 </body>
                                          </body>
@@ -126,21 +134,25 @@
             <body name="right_hip_pitch_link" pos="0 -89.761E-3 -81.437E-3" euler="15 0 0">
                 <joint type="hinge" name="right_hip_pitch_joint" axis="0 1 0" pos="0 0 0" range="-60 60" class = "AK109_actuator"/>
                 <geom type="mesh" class="visual" mesh="right_hip_pitch_link" />
+                <geom class="collision" size="0.05 0.06 0.05" pos="0 -0.065 0" type="box" />
                 <inertial pos="5.579E-3 -59.77E-3 0.581E-3" mass="1.764" fullinertia="3.245E-3 2.285E-3 3.417E-3 1.478E-4 5415.03E-9 -1738.735E-9" />
 
                     <body name="right_hip_roll_link" pos="0 -75E-3 0" euler="-15 0 0">
                         <joint type="hinge" name="right_hip_roll_joint" axis="1 0 0" pos="0 0 0" ref="0" range="-60 35" class = "AK109_actuator"/>
                         <geom type="mesh" class="visual" mesh="right_hip_roll_link" />
+                        <geom class="collision" size="0.05 0.04 0.04" pos="0 0 -0.105" type="box" />
                         <inertial pos="0.016E-3 -0.136E-3 -73.241E-3" mass="1.2918" fullinertia="2.359E-3 3.153E-3 1.975E-3 -927.06E-9 -3429.47E-9 -927.06E-9" />
                         
                             <body name="right_hip_yaw_link" pos="0 0 -120.5E-3" euler="0 0 0">
                                 <joint type="hinge" name="right_hip_yaw_joint" axis="0 0 1" pos="0 0 0" range="-45 45" class = "AK109_actuator"/>
                                 <geom type="mesh" class="visual" mesh="right_hip_yaw_link" />
+                                <geom class="collision" size="0.06 0.05 0.05" pos="0 0.01 -0.2" type="box" />
                                 <inertial pos="-0.029E-3 13.844E-3 -165.473E-3" mass="1.983" fullinertia="1.164E-2 1.208E-2 2.009E-3 2389.96E-9 -1032.992E-9 9.596E-4" />
 
                                 <body name="right_knee_link" pos="0 0 -203.5E-3" euler="0 0 0">
                                     <joint type="hinge" name="right_knee_pitch_joint" axis="0 1 0" pos="0 0 0" range="-10 120" class = "AK109_actuator"/>
                                     <geom type="mesh" class="visual" mesh="right_knee_link" />
+                                    <geom class="collision" size="0.045 0.04 0.1" pos="0.01 0 -0.2" type="box" />
                                     <inertial pos="9.336E-3 -3.761E-3 -163.038E-3" mass="1.879" fullinertia="1.653E-2 1.633E-2 1.480E-3 -35348.501E-9 7.738E-4 8.795E-4" />
                                     
                                     <body name="right_ankle_roll_link" pos="0 0 -335E-3" euler="0 0 0">
@@ -154,6 +166,8 @@
                                             <inertial pos="29.106E-3 0 -30.483E-3" mass="343.229E-3" fullinertia="1.546E-4 8.770E-4 9.434E-4 -9.97E-9 50230.908E-9 40.36E-9" />
                                             <!-- This geom is for collision -->
                                             <geom name="r_foot1" class="foot1" />
+                                            <!-- This site is for touch sensor -->
+                                            <site name="rf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 1" />
                                         </body>
                                     </body>
                                 </body>
@@ -185,8 +199,8 @@
       <velocimeter name="baselink-velocity" site="imu" />
       <gyro name="baselink-gyro" site="imu" />
       <accelerometer name="baselink-baseAcc" site="imu" />
-      <!-- <touch name="lf-touch" site="lf-tc" />
-      <touch name="rf-touch" site="rf-tc" /> -->
+      <touch name="lf-touch" site="lf-tc" />
+      <touch name="rf-touch" site="rf-tc" />
   </sensor>
 
     <keyframe>

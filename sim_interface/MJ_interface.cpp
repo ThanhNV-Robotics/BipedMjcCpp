@@ -59,11 +59,19 @@ MJ_Interface::MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char* j
         }
         jntId_dctl[i] = actuatorId;
     }
+
+    baseBodyId = mj_name2id(mj_model, mjOBJ_BODY, baseName.c_str());
+    orientataionSensorId = mj_name2id(mj_model, mjOBJ_SENSOR, orientationSensorName.c_str());
+    velSensorId = mj_name2id(mj_model, mjOBJ_SENSOR, velSensorName.c_str());
+    gyroSensorId = mj_name2id(mj_model, mjOBJ_SENSOR, gyroSensorName.c_str());
+    accSensorId = mj_name2id(mj_model, mjOBJ_SENSOR, accSensorName.c_str());
+    touchSensorId_L = mj_name2id(mj_model, mjOBJ_SENSOR, touchSensorName_L.c_str());
+    touchSensorId_R = mj_name2id(mj_model, mjOBJ_SENSOR, touchSensorName_R.c_str());
 }
 
 void MJ_Interface::updateSensorValues()
 {
-    // update joint position
+    // update joint position, velocity, acceleration and torque
     for (int i = 0; i < this->jointNum; i++)
     {
         this->motor_pos_Old[i] = this->motor_pos[i];
@@ -72,6 +80,8 @@ void MJ_Interface::updateSensorValues()
         this->motor_accel[i] = this->mj_data->qacc[this->jntId_qvel[i]];
         this->motor_torque[i] = this->mj_data->qfrc_actuator[this->jntId_qvel[i]];
     }
+
+    // update base-link orientation
     for (int i = 0; i < 4; i++)
         baseQuat[i] = mj_data->sensordata[mj_model->sensor_adr[orientataionSensorId] + i];
     double tmp = baseQuat[0];
@@ -92,15 +102,19 @@ void MJ_Interface::updateSensorValues()
     yaw_simgle=rpy[2];
     rpy[2]=yaw_simgle + yaw_N*2.0*3.1415926;
 
-
+    // update base-link position, acceleration(imu), angular velocity(imu) and linear velocity
     for (int i = 0; i < 3; i++)
     {
         double posOld = basePos[i];
         basePos[i] = mj_data->xpos[3 * baseBodyId + i];
-        baseAcc[i] = mj_data->sensordata[mj_model->sensor_adr[accSensorId] + i];
-        baseAngVel[i] = mj_data->sensordata[mj_model->sensor_adr[gyroSensorId] + i];
+        baseAcc[i] = mj_data->sensordata[mj_model->sensor_adr[accSensorId] + i]; // imu acceleration
+        baseAngVel[i] = mj_data->sensordata[mj_model->sensor_adr[gyroSensorId] + i]; // imu angular velocity
         baseLinVel[i] = (basePos[i] - posOld) / (mj_model->opt.timestep);
     }
+
+    // update touch sensor value
+    this->touch_lf = mj_data->sensordata[mj_model->sensor_adr[touchSensorId_L]];
+    this->touch_rf = mj_data->sensordata[mj_model->sensor_adr[touchSensorId_R]];
     return;
 }
 

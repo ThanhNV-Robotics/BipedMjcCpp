@@ -35,6 +35,10 @@ public:
     const std::string velSensorName="baselink-velocity";
     const std::string gyroSensorName="baselink-gyro";
     const std::string accSensorName="baselink-baseAcc";
+    const std::string touchSensorName_L="lf-touch"; // touch sensor of left foot
+    const std::string touchSensorName_R="rf-touch"; // touch sensor of right foot
+
+    double touch_lf{0}, touch_rf{0}; // touch sensor value (measure the norminal contact force)
 
     std::vector<std::string> JointName = {}; // this will be initialized with constructor by parsing the json config file
 
@@ -61,6 +65,8 @@ private:
     int gyroSensorId;
     int accSensorId;
     int baseBodyId;
+
+    int touchSensorId_L, touchSensorId_R; // touch sensor id for left and right foot
 
     double timeStep{0.001}; // second
     bool isIni{false};

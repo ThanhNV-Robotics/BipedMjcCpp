@@ -170,7 +170,10 @@ int main(int argc, const char** argv)
     uiController.iniGLFW();
     uiController.disableTracking(); // enable viewpoint tracking of the body 1 of the robot
     uiController.createWindow("Demo",false);
-
+    // real-time plot of the foot touch sensors (lf-touch, rf-touch)
+    const char* touchLineNames[2] = {"lf-touch", "rf-touch"};
+    const float touchLineColors[2][3] = {{1, 0, 0}, {0, 0, 1}};
+    uiController.initSensorFigure("Foot Touch Sensors", touchLineNames, touchLineColors, 2);
     // Create another ui to visualize the state estimation
     stateUI.iniGLFW();
     stateUI.disableTracking(); // enable viewpoint tracking of the body 1 of the robot
@@ -247,6 +250,10 @@ int main(int argc, const char** argv)
             mj_interface.setMotorsTorque(RobotState.joint_tor_out);
 
         }
+
+        // update sensor figure
+        double touchVals[2] = {mj_interface.touch_lf, mj_interface.touch_rf};
+        uiController.updateSensorFigure(mj_data->time, touchVals, 2);
 
         uiController.updateScene();
         stateUI.updateScene();

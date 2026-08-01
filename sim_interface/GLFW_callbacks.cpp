@@ -1,4 +1,6 @@
 #include "GLFW_callbacks.h"
+#include <cstring>
+#include <algorithm>
 
 UIctr::UIctr(mjModel *modelIn, mjData *dataIn) {
     mj_model=modelIn;
@@ -87,6 +89,53 @@ void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
     }
 }
 
+void UIctr::initSensorFigure(const char* title, const char* lineNames[], const float lineColors[][3], int numLines) {
+    numLines = std::min(numLines, mjMAXLINE);
+    mjv_defaultFigure(&figSensor);
+    figSensor.flg_legend = 1;
+    figSensor.flg_extend = 1; // auto-grow y-axis to fit data
+    std::snprintf(figSensor.title, sizeof(figSensor.title), "%s", title);
+    std::snprintf(figSensor.xlabel, sizeof(figSensor.xlabel), "time (s)");
+    figSensor.range[0][0] = 0;
+    figSensor.range[0][1] = 1; // updated per-frame below to a sliding window
+    figSensor.range[1][0] = 0;
+    figSensor.range[1][1] = 0; // (min>=max) -> automatic y-axis range
+
+    for (int n = 0; n < numLines; n++) {
+        std::snprintf(figSensor.linename[n], sizeof(figSensor.linename[n]), "%s", lineNames[n]);
+        figSensor.linergb[n][0] = lineColors[n][0];
+        figSensor.linergb[n][1] = lineColors[n][1];
+        figSensor.linergb[n][2] = lineColors[n][2];
+        figSensor.linepnt[n] = 0;
+    }
+    sensorFigureIni = true;
+}
+
+void UIctr::updateSensorFigure(double time, const double* values, int numLines) {
+    if (!sensorFigureIni)
+        return;
+    numLines = std::min(numLines, mjMAXLINE);
+
+    for (int n = 0; n < numLines; n++) {
+        int pnt = mjMIN(sensorFigMaxPnt, figSensor.linepnt[n] + 1);
+        // shift older points back to make room for the new one at index 0
+        for (int i = pnt - 1; i > 0; i--) {
+            figSensor.linedata[n][2 * i] = figSensor.linedata[n][2 * i - 2];
+            figSensor.linedata[n][2 * i + 1] = figSensor.linedata[n][2 * i - 1];
+        }
+        figSensor.linepnt[n] = pnt;
+        figSensor.linedata[n][0] = time;
+        figSensor.linedata[n][1] = values[n];
+    }
+
+    // sliding x-axis window spanning the currently buffered samples
+    int oldestIdx = figSensor.linepnt[0] - 1;
+    float xMin = figSensor.linedata[0][2 * oldestIdx];
+    float xMax = figSensor.linedata[0][0];
+    figSensor.range[0][0] = xMin;
+    figSensor.range[0][1] = (xMax > xMin) ? xMax : xMin + 1;
+}
+
 void UIctr::updateScene() {
     if (!isContinuous)
         runSim= false;
@@ -114,6 +163,10 @@ void UIctr::updateScene() {
 
     mjr_overlay(mjFONT_NORMAL, mjGRID_TOPRIGHT, viewport, buffer, NULL, &con);
 
+    if (sensorFigureIni) {
+        mjrRect figViewport = {viewport.width - viewport.width / 2, 0, viewport.width / 2, viewport.height / 2};
+        mjr_figure(figViewport, &figSensor, &con);
+    }
 
     // swap OpenGL buffers (blocking call due to v-sync)
     glfwSwapBuffers(window);

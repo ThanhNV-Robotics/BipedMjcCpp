@@ -11,7 +11,10 @@ class StateEstimator
     public:
         
         StateEstimator(double dt, bool verbose ); //Constructor, input: sampling time dt
-        void getSensorMeansurement (DataBus& Data); //
+        void getSensorMeansurement (DataBus& Data); // get sensor measurement from mujoco simulator
+
+        void update();
+
         // in our biped 12-dof robot, measurement includes:
         // joint states: position, velocity, torque
         // imu: quaternion, local acceleration, local angular velocity  
@@ -42,7 +45,13 @@ class StateEstimator
         // v process noise
         Eigen::Matrix<double, -1, -1> A_, B_, C_, Q_, P_, R_;
         Eigen::Matrix<double, -1, -1> x_hat_, ps_, vs_;
-        const int num_contact_ = 2; // 2 contact leg
-        const int dim_contact_ = 3*this->num_contact_; // dim 3 is the feet cartein position
+        const int numContact_ = 2; // 2 contact leg
+        const int dimContact_ = 3*this->numContact_; // 6, dim 3 is the feet cartein position
+
+// observation is the foot position and velocity measurement  w.r.t the base frame and foot height w.r.t world frame consider that the foot is in contact to the ground.
+        const int dimObserve_ = 2*this->dimContact_ + this->numContact_; // 12 + 2 = 14
+
+        const int dimState_ = 6 + this->dimContact_; // base pose + 2 foot position = 6 +3 +3 = 12
+        Eigen::Matrix<double, -1, 1> feetHeights_; //
 
 };
