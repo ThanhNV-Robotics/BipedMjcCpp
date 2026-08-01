@@ -26,7 +26,7 @@ struct DataBus
     // baseAcc[3] from IMU (local base frame)
     // base_quaternion/rpy from IMU w.r.t global frame
     // baseAngVel from IMU w.r.t local IMU/base frame
-    
+
     double rpy[3]; // base orientation
     double fL[3];  // Left feet position
     double fR[3];  // Right feet positioin
@@ -38,6 +38,9 @@ struct DataBus
     std::vector<double> joint_vel_cur; // joint velocity (current/feedback)
     std::vector<double> joint_tor_cur; // joint torque   (current/feedback)
     Eigen::VectorXd FL_est, FR_est; // contact wrench at left and right foot computed from dynamic model
+    
+    double touch_lf{0}, touch_rf{0}; // touch sensor value for left and right foot
+    
     // bool isdqIni; // unused
 
     // PVT controls
