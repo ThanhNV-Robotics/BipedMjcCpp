@@ -171,73 +171,89 @@ int main(int argc, const char** argv)
     stateUI.disableTracking(); // enable viewpoint tracking of the body 1 of the robot
     stateUI.createWindow("State Estimation",false);
 
-//     while( !glfwWindowShouldClose(uiController.window))
-//     {
-//         // advance interactive simulation for 1/60 sec
-//         //  Assuming MuJoCo can simulate faster than real-time, which it usually can,
-//         //  this loop will finish on time for the next frame to be rendered at 60 fps.
-//         //  Otherwise add a cpu timer and exit this loop when it is time to render.
-//         simstart=mj_data->time;
-//         while( mj_data->time - simstart < 1.0/60.0 && uiController.runSim) // press "1" to pause and resume, "2" to step the simulation
-//         {
-//             mj_step(mj_model, mj_data);
-//             uiController.applyPerturbation();
+    while( !glfwWindowShouldClose(uiController.window))
+    {
+        // advance interactive simulation for 1/60 sec
+        //  Assuming MuJoCo can simulate faster than real-time, which it usually can,
+        //  this loop will finish on time for the next frame to be rendered at 60 fps.
+        //  Otherwise add a cpu timer and exit this loop when it is time to render.
+        simstart=mj_data->time;
+        while( mj_data->time - simstart < 1.0/60.0 && uiController.runSim) // press "1" to pause and resume, "2" to step the simulation
+        {
+            mj_step(mj_model, mj_data);
+            uiController.applyPerturbation();
 
-//             simTime=mj_data->time;
-//             // update robot state from mujoco simulator
-//             mj_interface.updateSensorValues();
-//             mj_interface.dataBusWrite(RobotState);
+            simTime=mj_data->time;
+            // update robot state from mujoco simulator
+            mj_interface.updateSensorValues();
+            mj_interface.dataBusWrite(RobotState); // also calls RobotState.updateQ()
 
-//             state_estimator.getSensorMeansurement(RobotState);
-//             Eigen::Matrix<double, 4,1> imu_quat = state_estimator.getImuquaternion();
-//             // pass through stateUI_data
-//             stateUI_data->qpos[3] = imu_quat(3); // w
-//             stateUI_data->qpos[4] = imu_quat(0); // x
-//             stateUI_data->qpos[5] = imu_quat(1); // y
-//             stateUI_data->qpos[6] = imu_quat(2); // z
+            // forward kinematics: needed to populate RobotState.fe_l_pos_L /
+            // fe_r_pos_L / fe_l_vel_L / fe_r_vel_L, which is what
+            // state_estimator.getSensorMeansurement() below reads the foot
+            // position/velocity measurement from
+            kinDynSolver.dataBusRead(RobotState);
+            kinDynSolver.computeJ_dJ();
+            kinDynSolver.dataBusWrite(RobotState);
 
-//             Eigen::Matrix<double, 12,1> qj_est = state_estimator.get_qj();
-//             Eigen::Matrix<double, 12,1> qjd_est = state_estimator.get_qjd();
+            // feed the EKF: touch sensors for contact detection, then the
+            // rest of the measurement (imu, joints, foot pos/vel), then step
+            state_estimator.setTouch(mj_interface.touch_lf, mj_interface.touch_rf);
+            state_estimator.getSensorMeansurement(RobotState);
+            state_estimator.update(RobotState);
 
-//             for (size_t i = 0; i < mj_interface.JointName.size(); i++)
-//             {
-//                 stateUI_data->qpos[stateUiQposAdr_motorOrder[i]] = qj_est(i);
-//                 stateUI_data->qvel[stateUiQvelAdr_motorOrder[i]] = qjd_est(i);
-//             }
+            Eigen::Matrix<double, 4,1> imu_quat = state_estimator.getImuquaternion();
+            Eigen::Matrix<double, 3,1> basePos_est = state_estimator.getBasePosEst();
+            // visualize the estimate: write it into stateUI_data and run FK
+            stateUI_data->qpos[0] = basePos_est(0);
+            stateUI_data->qpos[1] = basePos_est(1);
+            stateUI_data->qpos[2] = basePos_est(2);
+            stateUI_data->qpos[3] = imu_quat(3); // w
+            stateUI_data->qpos[4] = imu_quat(0); // x
+            stateUI_data->qpos[5] = imu_quat(1); // y
+            stateUI_data->qpos[6] = imu_quat(2); // z
 
-//             mj_forward(stateUI_model, stateUI_data);
+            Eigen::Matrix<double, 12,1> qj_est = state_estimator.get_qj();
+            Eigen::Matrix<double, 12,1> qjd_est = state_estimator.get_qjd();
 
-//             rampFrac = std::min(simTime / rampDuration, 1.0);
-//             rampedJointPos = rampFrac * resLeg.jointPosRes;
-//             RobotState.joint_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
-//             RobotState.joint_vel_des= joint_vel_des;
-//             RobotState.joint_tor_des= joint_tau_des;
+            for (size_t i = 0; i < mj_interface.JointName.size(); i++)
+            {
+                stateUI_data->qpos[stateUiQposAdr_motorOrder[i]] = qj_est(i);
+                stateUI_data->qvel[stateUiQvelAdr_motorOrder[i]] = qjd_est(i);
+            }
 
-//             pvtCtr.dataBusRead(RobotState); // to update joint command
-//             pvtCtr.calMotorsPVT(); // calculate joint torque
-            
-//             pvtCtr.dataBusWrite(RobotState); // set to RobotState
-//             mj_interface.setMotorsTorque(RobotState.joint_tor_out); // Set joint torque to mujoco
+            mj_forward(stateUI_model, stateUI_data); // kinematics only, no dynamics step
 
-//             // printing
-//             count++;
-//             if (count >= 100)
-//             {
-//                 // count = 0;
-//                 // std::printf("quat w: %.3f\n", imu_quat(3));
-//                 // std::printf("quat x: %.3f\n", imu_quat(0));
-//                 // std::printf("quat y: %.3f\n", imu_quat(1));
-//                 // std::printf("quat z: %.3f\n", imu_quat(2));
-//             }
-//         }
+            rampFrac = std::min(simTime / rampDuration, 1.0);
+            rampedJointPos = rampFrac * resLeg.jointPosRes;
+            RobotState.joint_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
+            RobotState.joint_vel_des= joint_vel_des;
+            RobotState.joint_tor_des= joint_tau_des;
 
-//         uiController.updateScene();
-//         stateUI.updateScene();
-//     }
+            pvtCtr.dataBusRead(RobotState); // to update joint command
+            pvtCtr.calMotorsPVT(); // calculate joint torque
 
-// //    // free visualization storage
-//     uiController.Close();
-//     stateUI.Close();
+            pvtCtr.dataBusWrite(RobotState); // set to RobotState
+            mj_interface.setMotorsTorque(RobotState.joint_tor_out); // Set joint torque to mujoco
+
+            // printing
+            count++;
+            if (count >= 100)
+            {
+                count = 0;
+                std::printf("base pos est: % .3f % .3f % .3f | quat w: %.3f x: %.3f y: %.3f z: %.3f\n",
+                            basePos_est(0), basePos_est(1), basePos_est(2),
+                            imu_quat(3), imu_quat(0), imu_quat(1), imu_quat(2));
+            }
+        }
+
+        uiController.updateScene();
+        stateUI.updateScene();
+    }
+
+    // free visualization storage
+    uiController.Close();
+    stateUI.Close();
 
     return 0;
 }

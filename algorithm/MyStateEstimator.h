@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <Eigen/src/Core/Matrix.h>
 #include <cmath>
 #include <iostream>
 
@@ -13,7 +14,11 @@ public:
   void getSensorMeansurement(
       DataBus &Data); // get sensor measurement from mujoco simulator
 
-  void update();
+  void update(DataBus &Data);
+
+  // feed foot touch-sensor readings in before calling update(); update()
+  // thresholds these against 50 to derive leg_contact[]
+  void setTouch(double touch_lf, double touch_rf);
 
   // in our biped 12-dof robot, measurement includes:
   // joint states: position, velocity, torque
@@ -22,9 +27,14 @@ public:
   Eigen::Matrix<double, 4, 1> getImuquaternion();
   Eigen::Matrix<double, 12, 1> get_qj();  // return joint position
   Eigen::Matrix<double, 12, 1> get_qjd(); // return joint velocity
+  Eigen::Matrix<double, 3, 1> getBasePosEst(); // return estimated base position (xhat_[0:3])
+  Eigen::Matrix<double, 3, 1> getBaseVelEst(); // return estimated base linear velocity (xhat_[3:6])
   // Eigen::Matrix<double, 6,1> get_qb(); // return base pose (position, rpy)
   // Eigen::Matrix<double, 6,1> get_qbd(); // return base linear velocity and
   // angular velocity
+
+  // for debug only
+//   void setContactFlg (bool L_contact, bool R_contact);
 
 private:
   double dt_;
@@ -41,9 +51,15 @@ private:
   Eigen::Matrix<double, 3, 1> base_pos_est_, base_linearVel_est_;
 
   double touch_lf{0}, touch_rf{0};
-  bool leg_contac[2] = {
+  bool leg_contact[2] = {
       true,
       true}; // flags for leg contact status, first for left, 2nd for right
+
+  // Foot position in the base frame (local coordinate)
+  Eigen::VectorXd footEndPos_;
+  Eigen::VectorXd footEndVel_;
+  Eigen::Matrix<double, -1, 1> feetHeights_; //
+
 
   // Kalman Filter for base position and linear velocity estimation
   // Prediction model:
@@ -52,20 +68,14 @@ private:
   // where a_k is the imu acceleration w.r.t world frame
   // v process noise
   Eigen::Matrix<double, -1, -1> A_, B_, C_, Q_, P_, R_;
-  Eigen::Matrix<double, -1, -1> x_hat_, ps_, vs_;
+  // baseline (unscaled) Q_/R_, captured once after construction so that the
+  // per-contact scaling in update() is applied fresh each call instead of
+  // compounding on top of the previous step's already-scaled matrix
+  Eigen::Matrix<double, -1, -1> Q0_, R0_;
+  Eigen::Matrix<double, -1, 1> xhat_, ps_, vs_;
   const int numContact_ = 2; // 2 contact leg
   const int dimContact_ =
       3 * this->numContact_; // 6, dim 3 is the feet cartein position
-
-  // Config
-  double footRadius_ = 0.02;
-  // scale factor for process noise covariance matrix Q_
-  double imuProcessNoisePosition_ = 0.02;
-  double imuProcessNoiseVelocity_ = 0.02;
-  double footProcessNoisePosition_ = 0.002;
-  double footSensorNoisePosition_ = 0.005;
-  double footSensorNoiseVelocity_ = 0.1;
-  double footHeightSensorNoise_ = 0.01;
 
   // observation is the foot position and velocity measurement  w.r.t the base
   // frame and foot height w.r.t world frame consider that the foot is in
@@ -75,5 +85,17 @@ private:
 
   const int dimState_ =
       6 + this->dimContact_; // base pose + 2 foot position = 6 +3 +3 = 12
-  Eigen::Matrix<double, -1, 1> feetHeights_; //
+
+
+  //----------------------------------------------------------------
+  // Configuration parameters for the Kalman Filter
+  //----------------------------------------------------------------
+  double footRadius_ = 0.02;
+  // scale factor for process noise covariance matrix Q_
+  double imuProcessNoisePosition_ = 0.02;
+  double imuProcessNoiseVelocity_ = 0.02;
+  double footProcessNoisePosition_ = 0.002;
+  double footSensorNoisePosition_ = 0.005;
+  double footSensorNoiseVelocity_ = 0.1;
+  double footHeightSensorNoise_ = 0.01;
 };
