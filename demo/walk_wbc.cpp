@@ -109,12 +109,12 @@ int main(int argc, const char** argv)
     int model_nv=kinDynSolver.model_nv;
 
     // // ini position and posture for foot-end
-    std::vector<double> joint_pos_des(model_nv - 6, 0); //=12, -6 to exclude the floating base dof in pinocchio model
-    std::vector<double> joint_pos_cur(model_nv - 6, 0);
-    std::vector<double> joint_vel_des(model_nv - 6, 0);
-    std::vector<double> joint_vel_cur(model_nv - 6, 0);
-    std::vector<double> joint_tau_des(model_nv - 6, 0);
-    std::vector<double> joint_tau_cur(model_nv - 6, 0);
+    std::vector<double> motor_pos_des(model_nv - 6, 0); //=12, -6 to exclude the floating base dof in pinocchio model
+    std::vector<double> motor_pos_cur(model_nv - 6, 0);
+    std::vector<double> motor_vel_des(model_nv - 6, 0);
+    std::vector<double> motor_vel_cur(model_nv - 6, 0);
+    std::vector<double> motor_tau_des(model_nv - 6, 0);
+    std::vector<double> motor_tau_cur(model_nv - 6, 0);
     Eigen::Vector3d fe_l_pos_L_des = {0.0, RobotState.width_hips / 2, -stand_legLength};  // desired left feet pos
     Eigen::Vector3d fe_r_pos_L_des = {0.0, -RobotState.width_hips / 2, -stand_legLength}; // desired right feet pos
 
@@ -134,7 +134,7 @@ int main(int argc, const char** argv)
     // simulated robot) and stateUI_model (a separate mjData used purely to
     // visualize the state estimate) by name, via kinDynSolver.ikJointNames --
     // rather than trusting RobotState.q(7..18), which comes from
-    // DataBus::updateQ() assuming joint_pos_cur is already in Pin_KinDyn's
+    // DataBus::updateQ() assuming motor_pos_cur is already in Pin_KinDyn's
     // joint order, when MJ_Interface's order is actually alphabetical (from
     // its JSON config's keys).
     std::vector<int> mjQposAdr(kinDynSolver.ikJointNames.size()), stateUiQposAdr(kinDynSolver.ikJointNames.size());
@@ -148,8 +148,8 @@ int main(int argc, const char** argv)
 
     // // register variable name for data logger
     // logger.addIterm("simTime", 1);
-    // logger.addIterm("joint_pos_cur",model_nv-6);
-    // logger.addIterm("joint_vel_cur",model_nv-6);
+    // logger.addIterm("motor_pos_cur",model_nv-6);
+    // logger.addIterm("motor_vel_cur",model_nv-6);
     // logger.addIterm("rpy",3);
     // logger.addIterm("fL",3);
     // logger.addIterm("fR",3);
@@ -234,9 +234,9 @@ int main(int argc, const char** argv)
                 const double rampDuration = 2.0;
                 double rampFrac = std::min(simTime / rampDuration, 1.0);
                 Eigen::VectorXd rampedJointPos = rampFrac * resLeg.jointPosRes;
-                RobotState.joint_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
-                RobotState.joint_vel_des= joint_vel_des;
-                RobotState.joint_tor_des= joint_tau_des;
+                RobotState.motors_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
+                RobotState.motors_vel_des= motor_vel_des;
+                RobotState.motors_tor_des= motor_tau_des;
             }
             else
             {
@@ -247,7 +247,7 @@ int main(int argc, const char** argv)
             pvtCtr.calMotorsPVT();
             
             pvtCtr.dataBusWrite(RobotState);
-            mj_interface.setMotorsTorque(RobotState.joint_tor_out);
+            mj_interface.setMotorsTorque(RobotState.motors_tor_out);
 
         }
 

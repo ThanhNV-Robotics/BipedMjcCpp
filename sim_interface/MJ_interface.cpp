@@ -147,8 +147,8 @@ void MJ_Interface::setMotorsTorque(std::vector<double> &tauIn)
 void MJ_Interface::dataBusWrite(DataBus &busIn)
 {
     // update to data bus so other controller can read motor states through data bus
-    busIn.joint_pos_cur = motor_pos;
-    busIn.joint_vel_cur = motor_vel;
+    busIn.motors_pos_cur = motor_pos;
+    busIn.motors_vel_cur = motor_vel;
 
     busIn.rpy[0] = rpy[0];
     busIn.rpy[1] = rpy[1];
@@ -185,7 +185,7 @@ void MJ_Interface::printInfo()
         std::printf("  [%2d] %-25s \n", i, this->JointName[i].c_str());
     }
 
-    std::printf("Corresponding joint_pos id: ");
+    std::printf("Corresponding motor_pos id: ");
 
     for (int i = 0; i < this->jointNum; i++)
     {
@@ -193,7 +193,7 @@ void MJ_Interface::printInfo()
         else std::printf("  %d, ", this->jntId_qpos[i]);
     }
 
-    std::printf("Corresponding joint_velocity id: ");
+    std::printf("Corresponding motor_velocity id: ");
 
     for (int i = 0; i < this->jointNum; i++)
     {

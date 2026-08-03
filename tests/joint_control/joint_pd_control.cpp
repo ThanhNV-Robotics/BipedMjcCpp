@@ -64,23 +64,23 @@ int main (int argc, char** argv)
     // Init classes
     //-------------------------------------------------------------------
     DataBus RobotState(7); // data bus
-    const std::string joint_ctrl_config_path = "config/right_joint_ctrl_config.json";
-    PVT_Ctr pvtCtr (mj_model->opt.timestep, joint_ctrl_config_path.c_str());
+    const std::string motor_ctrl_config_path = "config/right_motor_ctrl_config.json";
+    PVT_Ctr pvtCtr (mj_model->opt.timestep, motor_ctrl_config_path.c_str());
     pvtCtr.printPVTinfo();
     DataLogger logger("record/datalog.log"); // data logger
     // MuJoCo interface
 
-    MJ_Interface mj_interface (mj_model, mj_data, joint_ctrl_config_path.c_str());
+    MJ_Interface mj_interface (mj_model, mj_data, motor_ctrl_config_path.c_str());
 
     std::printf("Init MuJoCo Interface\n");
     mj_interface.printInfo();
 
     // register variable name for data logger
     logger.addIterm("simTime", 1);
-    logger.addIterm("joint_pos",6);
-    logger.addIterm("joint_vel",6);
-    logger.addIterm("joint_accel",6);
-    logger.addIterm("joint_torque",6);
+    logger.addIterm("motor_pos",6);
+    logger.addIterm("motor_vel",6);
+    logger.addIterm("motor_accel",6);
+    logger.addIterm("motor_torque",6);
     logger.finishItermAdding();
 
 
@@ -120,7 +120,7 @@ int main (int argc, char** argv)
             // // Compute joint torque
             pvtCtr.calMotorsPVT();
             pvtCtr.dataBusWrite(RobotState); // write the joint toque cmd to data bus
-            mj_interface.setMotorsTorque(RobotState.joint_tor_out);
+            mj_interface.setMotorsTorque(RobotState.motors_tor_out);
             
             count ++;
             if (count >= 100 )
@@ -133,10 +133,10 @@ int main (int argc, char** argv)
             // log data
             logger.startNewLine();
             logger.recItermData("simTime", simTime);
-            logger.recItermData("joint_pos",mj_interface.getJointPos());
-            logger.recItermData("joint_vel",mj_interface.getJointVel());
-            logger.recItermData("joint_accel", mj_interface.getJointAccel());
-            logger.recItermData("joint_torque", mj_interface.getJointTorque());
+            logger.recItermData("motor_pos",mj_interface.getJointPos());
+            logger.recItermData("motor_vel",mj_interface.getJointVel());
+            logger.recItermData("motor_accel", mj_interface.getJointAccel());
+            logger.recItermData("motor_torque", mj_interface.getJointTorque());
             logger.finishLine();
         }
         ui.updateScene(); //

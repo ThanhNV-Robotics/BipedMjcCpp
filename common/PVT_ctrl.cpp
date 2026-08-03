@@ -60,17 +60,17 @@ PVT_Ctr::PVT_Ctr(double timeStepIn, const char *jsonPath) {
 void PVT_Ctr::dataBusRead(DataBus &busIn) {
     for (int i=0;i<jointNum;i++)
     {
-        motor_pos_cur[i]=busIn.joint_pos_cur[i];
-        motor_vel[i]=busIn.joint_vel_cur[i];
+        motor_pos_cur[i]=busIn.motors_pos_cur[i];
+        motor_vel[i]=busIn.motors_vel_cur[i];
     }
-    motor_pos_des=busIn.joint_pos_des;
-    motor_vel_des=busIn.joint_vel_des;
-    motor_tor_des=busIn.joint_tor_des;
+    motor_pos_des=busIn.motors_pos_des;
+    motor_vel_des=busIn.motors_vel_des;
+    motor_tor_des=busIn.motors_tor_des;
 }
 
 void PVT_Ctr::dataBusWrite(DataBus &busIn) {
-    busIn.joint_tor_out=motor_tor_out_motor;
-    busIn.joint_tor_cur=motor_tor_out_link;
+    busIn.motors_tor_out=motor_tor_out_motor;
+    busIn.motors_tor_cur=motor_tor_out_link;
 }
 
 void PVT_Ctr::setJointPD(double kp, double kd, const char *jointName) {

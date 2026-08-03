@@ -28,17 +28,19 @@ struct DataBus
     double baseLinVel[3]; // velocity of the basePos
     double baseAcc[3];    // baseAcc of the base link
     double baseAngVel[3]; // angular velocity of the base link
-    std::vector<double> joint_pos_cur; // measured joint positions (rad), size model_nv-6
-    std::vector<double> joint_vel_cur; // measured joint velocities (rad/s)
-    std::vector<double> joint_tor_cur; // PVT-controller commanded joint torque (N.m), used as applied-torque proxy
+    std::vector<double> motors_pos_cur; // measured joint positions (rad), size model_nv-6
+    std::vector<double> motors_vel_cur; // measured joint velocities (rad/s)
+    std::vector<double> motors_tor_cur; // PVT-controller commanded joint torque (N.m), used as applied-torque proxy
     Eigen::VectorXd FL_est, FR_est;     // estimated left/right foot-end 6D wrench (force+moment)
     bool isdqIni;                       // vestigial "dq initialized" flag; not read/written elsewhere
 
+    double touch_lf; // left foot touch sensor measurement (normal reaction force)
+    double touch_rf; // right foot touch sensor measurement
     // PVT controls
-    std::vector<double> joint_pos_des; // desired joint position setpoint (rad) for PD control
-    std::vector<double> joint_vel_des; // desired joint velocity setpoint (rad/s) for PD control
-    std::vector<double> joint_tor_des; // desired feed-forward joint torque (N.m) added to PD term
-    std::vector<double> joint_tor_out; // final motor-side torque command sent to actuators
+    std::vector<double> motors_pos_des; // desired joint position setpoint (rad) for PD control
+    std::vector<double> motors_vel_des; // desired joint velocity setpoint (rad/s) for PD control
+    std::vector<double> motors_tor_des; // desired feed-forward joint torque (N.m) added to PD term
+    std::vector<double> motors_tor_out; // final motor-side torque command sent to actuators
 
     // states and key variables
     Eigen::VectorXd q, dq, ddq; // q=[base_pos(3),base_quat(4),joint_pos]; dq/ddq=[base_lin_vel(3),base_ang_vel(3),joint_vel/acc]
@@ -161,13 +163,13 @@ struct DataBus
 
     DataBus(int model_nvIn) : model_nv(model_nvIn)
     {
-        joint_pos_cur.assign(model_nv - 6, 0);
-        joint_vel_cur.assign(model_nv - 6, 0);
-        joint_tor_out.assign(model_nv - 6, 0);
-        joint_tor_cur.assign(model_nv - 6, 0);
-        joint_tor_des.assign(model_nv - 6, 0);
-        joint_vel_des.assign(model_nv - 6, 0);
-        joint_pos_des.assign(model_nv - 6, 0);
+        motors_pos_cur.assign(model_nv - 6, 0);
+        motors_vel_cur.assign(model_nv - 6, 0);
+        motors_tor_out.assign(model_nv - 6, 0);
+        motors_tor_cur.assign(model_nv - 6, 0);
+        motors_tor_des.assign(model_nv - 6, 0);
+        motors_vel_des.assign(model_nv - 6, 0);
+        motors_pos_des.assign(model_nv - 6, 0);
         q = Eigen::VectorXd::Zero(model_nv + 1);
         qOld = Eigen::VectorXd::Zero(model_nv + 1);
         dq = Eigen::VectorXd::Zero(model_nv);
@@ -217,7 +219,7 @@ struct DataBus
         q(5) = quatNow.z();
         q(6) = quatNow.w();
         for (int i = 0; i < model_nv - 6; i++)
-            q(i + 7) = joint_pos_cur[i];
+            q(i + 7) = motors_pos_cur[i];
 
         Eigen::Vector3d vCoM_W;
         vCoM_W << baseLinVel[0], baseLinVel[1], baseLinVel[2];
@@ -226,7 +228,7 @@ struct DataBus
         //        dq.block<3,1>(3,0) << baseAngVel[0],baseAngVel[1],baseAngVel[2];
         for (int i = 0; i < model_nv - 6; i++)
         {
-            dq(i + 6) = joint_vel_cur[i];
+            dq(i + 6) = motors_vel_cur[i];
         }
 
         base_pos << q(0), q(1), q(2);
