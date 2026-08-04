@@ -171,6 +171,8 @@ void MJ_Interface::dataBusWrite(DataBus &busIn)
     busIn.baseAngVel[0] = baseAngVel[0];
     busIn.baseAngVel[1] = baseAngVel[1];
     busIn.baseAngVel[2] = baseAngVel[2];
+    busIn.touch_lf = touch_lf;
+    busIn.touch_rf = touch_rf;
     busIn.updateQ();
 }
 

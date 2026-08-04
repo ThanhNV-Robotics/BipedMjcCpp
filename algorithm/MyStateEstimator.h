@@ -27,6 +27,12 @@ public:
   Eigen::Matrix<double, 3, 1> getBaseVelEst(); // return estimated base linear velocity (xhat_[3:6])
   Eigen::Matrix<double, 3, 1> getAccelBiasEst(); // return estimated accelerometer bias (xhat_[dimState_-3:dimState_])
   std::vector<bool> getContactFlags();
+
+  // seed xhat_'s base-position sub-state (e.g. with the sim's known ground-
+  // truth initial pose), so the estimate starts where the real robot starts
+  // instead of at the origin -- there's no absolute-position sensor for the
+  // filter to otherwise correct that from quickly
+  void setBasePosEst(const Eigen::Matrix<double, 3, 1> &pos);
   // Eigen::Matrix<double, 6,1> get_qb(); // return base pose (position, rpy)
   // Eigen::Matrix<double, 6,1> get_qbd(); // return base linear velocity and
 

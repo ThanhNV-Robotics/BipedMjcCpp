@@ -7,19 +7,20 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 */
 #include <mujoco/mujoco.h>
 #include <GLFW/glfw3.h>
-#include <algorithm>
 #include <cstdio>
 #include <iostream>
-#include "useful_math.h"
 #include "GLFW_callbacks.h"
 #include "MJ_interface.h"
-#include "PVT_ctrl.h"
-#include "pino_kin_dyn.h"
+
+
 #include "data_logger.h"
 #include "useful_math.h"
-
 #include "MyStateEstimator.h"
-
+#include "pino_kin_dyn.h"
+#include "PVT_ctrl.h"
+#include <algorithm>
+#include "useful_math.h"
+#include "gait_scheduler.h"
 
 //************************
 // main function
@@ -31,40 +32,31 @@ int main(int argc, const char** argv)
     //-------------------------------------------------------------------
     // Compile mujoco xml model
     //-------------------------------------------------------------------
-    const std::string model_path = MODEL_DIR + "/scene_floatingbase_12dof.xml";
+    const std::string model_path = MODEL_DIR + "/scene_state_est.xml";
     // const std::string model_path = (argc > 1) ? argv[1] : model_path; // if input model path in the arg then use that path
     std::cout << "Input model path: " + model_path + "\n";
     char loadError[1024] = ""; // character array, size 1024
     // load/compile xml model
     // model_path.c_str() return a read-only pointer to const std::string model_path
     mjModel *mj_model = mj_loadXML(model_path.c_str(), nullptr, loadError, sizeof(loadError)); // pointer to mjModel struct
-    
-    
-
     if (!mj_model)
     {
         std::fprintf(stderr, "failed to load %s: %s\n", model_path.c_str(), loadError);
         return 1;
     }
     mjData *mj_data = mj_makeData(mj_model); // pointer to mjData struct
-
-    mjModel *stateUI_model = mj_loadXML(model_path.c_str(), nullptr, loadError, sizeof(loadError)); // pointer to mjModel struct
-    mjData *stateUI_data = mj_makeData(stateUI_model); // pointer to mjData struct
-
     std::cout << "Compile mujoco xml done\n";
     
-
+    //************************************************************* */
     // ini classes
+    //************************************************************* */
     const std::string joint_ctrl_config_path = "config/12dof_joint_config.json";
     UIctr uiController(mj_model,mj_data);   // UI control for Mujoco
-
-    // ui for state estimation
-    UIctr stateUI(stateUI_model, stateUI_data);
-
     MJ_Interface mj_interface(mj_model, mj_data, joint_ctrl_config_path.c_str()); // data interface for Mujoco
     // print out xml model info
     std::printf("MuJoCo xml model info: \n");
     mj_interface.printInfo();
+    GaitScheduler gaitScheduler(0.4, mj_model->opt.timestep); // gait scheduler
 
     const std::string urdf_path = "models/urdf/biped_robot_12dof.urdf";
     Pin_KinDyn kinDynSolver(urdf_path.c_str()); // kinematics and dynamics solver
@@ -78,7 +70,42 @@ int main(int argc, const char** argv)
     DataLogger logger("record/wbc_walk_control.log"); // data logger
     StateEstimator state_estimator = StateEstimator(mj_model->opt.timestep, true);
 
+    // scene_state_est.xml merges the real robot and a "_est"-suffixed ghost
+    // twin (biped_robot_floatingbase_ghost_12dof.xml) into one model/mjData,
+    // so the ghost can be driven every frame by directly overwriting its
+    // qpos/qvel with the state estimate -- it has no actuators and no
+    // collision geoms, so mj_step() never drives it on its own.
+    // state_estimator.get_qj()/get_qjd() return the 12 leg joints in
+    // mj_interface.JointName order, so map that same order to each ghost
+    // joint's qpos/qvel address here, once, up front.
+    std::vector<int> ghostJointQposAdr(mj_interface.JointName.size());
+    std::vector<int> ghostJointQvelAdr(mj_interface.JointName.size());
+    for (size_t i = 0; i < mj_interface.JointName.size(); i++)
+    {
+        std::string ghostJointName = mj_interface.JointName[i] + "_est";
+        int jid = mj_name2id(mj_model, mjOBJ_JOINT, ghostJointName.c_str());
+        ghostJointQposAdr[i] = mj_model->jnt_qposadr[jid];
+        ghostJointQvelAdr[i] = mj_model->jnt_dofadr[jid];
+    }
+    int ghostFreeJointId = mj_name2id(mj_model, mjOBJ_JOINT, "floating_base_joint_est");
+    int ghostFreeQposAdr = mj_model->jnt_qposadr[ghostFreeJointId];
+    int ghostFreeQvelAdr = mj_model->jnt_dofadr[ghostFreeJointId];
+
+    // seed the EKF's base-position estimate with the real robot's actual
+    // starting pose (mj_data->qpos here still holds the XML's default free-
+    // joint position, since no mj_step has run yet) -- otherwise xhat_ starts
+    // at the origin and the ghost visibly starts buried in the floor before
+    // slowly rising to match, since there's no absolute-position sensor to
+    // correct that quickly
+    int realFreeJointId = mj_name2id(mj_model, mjOBJ_JOINT, "floating_base_joint");
+    int realFreeQposAdr = mj_model->jnt_qposadr[realFreeJointId];
+    state_estimator.setBasePosEst(Eigen::Map<Eigen::Vector3d>(mj_data->qpos + realFreeQposAdr));
+
+
+    //************************************************************* */
     // variables ini
+    //************************************************************* */
+    
     double stand_legLength = 0.75; // desired baselink height
     double foot_height = 0.07; // distance between the foot ankel joint and the bottom
     double  xv_des = 0.7;  // desired velocity in x direction
@@ -109,22 +136,6 @@ int main(int argc, const char** argv)
 
     Eigen::VectorXd qIniDes=Eigen::VectorXd::Zero(mj_model->nq,1);
     qIniDes.block(7, 0, mj_model->nq - 7, 1) = resLeg.jointPosRes;
-    
-    // Precompute each joint's qpos address on both mj_model (the real,
-    // simulated robot) and stateUI_model (a separate mjData used purely to
-    // visualize the state estimate) by name, via kinDynSolver.ikJointNames --
-    // rather than trusting RobotState.q(7..18), which comes from
-    // DataBus::updateQ() assuming motor_pos_cur is already in Pin_KinDyn's
-    // joint order, when MJ_Interface's order is actually alphabetical (from
-    // its JSON config's keys).
-    std::vector<int> mjQposAdr(kinDynSolver.ikJointNames.size()), stateUiQposAdr(kinDynSolver.ikJointNames.size());
-    for (size_t i = 0; i < kinDynSolver.ikJointNames.size(); i++)
-    {
-        int jid = mj_name2id(mj_model, mjOBJ_JOINT, kinDynSolver.ikJointNames[i].c_str());
-        mjQposAdr[i] = mj_model->jnt_qposadr[jid];
-        int jidState = mj_name2id(stateUI_model, mjOBJ_JOINT, kinDynSolver.ikJointNames[i].c_str());
-        stateUiQposAdr[i] = stateUI_model->jnt_qposadr[jidState];
-    }
 
     // // register variable name for data logger
     // logger.addIterm("simTime", 1);
@@ -147,15 +158,6 @@ int main(int argc, const char** argv)
     double startWalkingTime=5;
     int count = 0;
 
-    std::vector<int> stateUiQposAdr_motorOrder(mj_interface.JointName.size());
-    std::vector<int> stateUiQvelAdr_motorOrder(mj_interface.JointName.size());
-    for (size_t i = 0; i < mj_interface.JointName.size(); i++)
-    {
-        int jid = mj_name2id(stateUI_model, mjOBJ_JOINT, mj_interface.JointName[i].c_str());
-        stateUiQposAdr_motorOrder[i] = stateUI_model->jnt_qposadr[jid];
-        stateUiQvelAdr_motorOrder[i] = stateUI_model->jnt_dofadr[jid];
-    }
-
     // for ramping the standing
     const double rampDuration = 2.0;
     double rampFrac = std::min(simTime / rampDuration, 1.0);
@@ -166,10 +168,10 @@ int main(int argc, const char** argv)
     uiController.disableTracking(); // enable viewpoint tracking of the body 1 of the robot
     uiController.createWindow("Demo",false);
 
-    // Create another ui to visualize the state estimation
-    stateUI.iniGLFW();
-    stateUI.disableTracking(); // enable viewpoint tracking of the body 1 of the robot
-    stateUI.createWindow("State Estimation",false);
+    // real-time plot of the foot touch sensors (lf-touch, rf-touch)
+    const char* touchLineNames[2] = {"lf-touch", "rf-touch"};
+    const float touchLineColors[2][3] = {{1, 0, 0}, {0, 0, 1}};
+    uiController.initSensorFigure("Foot Touch Sensors", touchLineNames, touchLineColors, 2);
 
     while( !glfwWindowShouldClose(uiController.window))
     {
@@ -188,6 +190,22 @@ int main(int argc, const char** argv)
             mj_interface.updateSensorValues();
             mj_interface.dataBusWrite(RobotState); // also calls RobotState.updateQ()
 
+            // RobotState.updateQ() (just called above) copies
+            // motors_pos_cur/motors_vel_cur straight into q(7:)/dq(6:),
+            // assuming they're already in Pinocchio's joint order -- but
+            // MJ_Interface actually returns them alphabetically (from its
+            // JSON config's keys), a different order entirely. Left as-is,
+            // computeJ_dJ() below would run FK on a shuffled leg
+            // configuration, handing the EKF a badly wrong foot-position
+            // measurement that biases the base-position estimate by several
+            // centimeters. Overwrite with a correctly reordered copy first.
+            std::vector<double> q_pin = kinDynSolver.mapJointVecFromOrder(RobotState.motors_pos_cur, mj_interface.JointName);
+            std::vector<double> dq_pin = kinDynSolver.mapJointVecFromOrder(RobotState.motors_vel_cur, mj_interface.JointName);
+            for (size_t i = 0; i < q_pin.size(); i++) {
+                RobotState.q(i + 7) = q_pin[i];
+                RobotState.dq(i + 6) = dq_pin[i];
+            }
+
             // forward kinematics: needed to populate RobotState.fe_l_pos_L /
             // fe_r_pos_L / fe_l_vel_L / fe_r_vel_L, which is what
             // state_estimator.getSensorMeansurement() below reads the foot
@@ -201,28 +219,6 @@ int main(int argc, const char** argv)
             state_estimator.getSensorMeansurement(RobotState);
             state_estimator.update(RobotState);
 
-            Eigen::Matrix<double, 4,1> imu_quat = state_estimator.getImuquaternion();
-            Eigen::Matrix<double, 3,1> basePos_est = state_estimator.getBasePosEst();
-            // visualize the estimate: write it into stateUI_data and run FK
-            stateUI_data->qpos[0] = basePos_est(0);
-            stateUI_data->qpos[1] = basePos_est(1);
-            stateUI_data->qpos[2] = basePos_est(2);
-            stateUI_data->qpos[3] = imu_quat(3); // w
-            stateUI_data->qpos[4] = imu_quat(0); // x
-            stateUI_data->qpos[5] = imu_quat(1); // y
-            stateUI_data->qpos[6] = imu_quat(2); // z
-
-            Eigen::Matrix<double, 12,1> qj_est = state_estimator.get_qj();
-            Eigen::Matrix<double, 12,1> qjd_est = state_estimator.get_qjd();
-
-            for (size_t i = 0; i < mj_interface.JointName.size(); i++)
-            {
-                stateUI_data->qpos[stateUiQposAdr_motorOrder[i]] = qj_est(i);
-                stateUI_data->qvel[stateUiQvelAdr_motorOrder[i]] = qjd_est(i);
-            }
-
-            mj_forward(stateUI_model, stateUI_data); // kinematics only, no dynamics step
-
             rampFrac = std::min(simTime / rampDuration, 1.0);
             rampedJointPos = rampFrac * resLeg.jointPosRes;
             RobotState.motors_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
@@ -234,25 +230,55 @@ int main(int argc, const char** argv)
 
             pvtCtr.dataBusWrite(RobotState); // set to RobotState
             mj_interface.setMotorsTorque(RobotState.motors_tor_out); // Set joint torque to mujoco
+        }
+        // propagate the state estimate into the ghost overlay's qpos/qvel,
+        // then re-run forward kinematics (not mj_step -- the ghost is never
+        // simulated, only ever visually puppeted by directly overwriting its
+        // pose) so it renders the estimate instead of free-falling under
+        // gravity for the ~1/60s until the next overwrite
+        Eigen::Matrix<double, 3, 1> basePos_est = state_estimator.getBasePosEst();
+        Eigen::Matrix<double, 3, 1> baseVel_est = state_estimator.getBaseVelEst();
+        Eigen::Matrix<double, 4, 1> imu_quat = state_estimator.getImuquaternion(); // (x,y,z,w)
+        Eigen::Matrix<double, 12, 1> qj_est = state_estimator.get_qj();
+        Eigen::Matrix<double, 12, 1> qjd_est = state_estimator.get_qjd();
 
-            // printing
-            count++;
-            if (count >= 100)
-            {
-                count = 0;
-                std::printf("base pos est: % .3f % .3f % .3f | quat w: %.3f x: %.3f y: %.3f z: %.3f\n",
-                            basePos_est(0), basePos_est(1), basePos_est(2),
-                            imu_quat(3), imu_quat(0), imu_quat(1), imu_quat(2));
-            }
+        mj_data->qpos[ghostFreeQposAdr + 0] = basePos_est(0);
+        mj_data->qpos[ghostFreeQposAdr + 1] = basePos_est(1);
+        mj_data->qpos[ghostFreeQposAdr + 2] = basePos_est(2);
+        // MuJoCo's free-joint quaternion order is (w,x,y,z); the
+        // estimator/Pinocchio convention is (x,y,z,w)
+        mj_data->qpos[ghostFreeQposAdr + 3] = imu_quat(3); // w
+        mj_data->qpos[ghostFreeQposAdr + 4] = imu_quat(0); // x
+        mj_data->qpos[ghostFreeQposAdr + 5] = imu_quat(1); // y
+        mj_data->qpos[ghostFreeQposAdr + 6] = imu_quat(2); // z
+
+        mj_data->qvel[ghostFreeQvelAdr + 0] = baseVel_est(0);
+        mj_data->qvel[ghostFreeQvelAdr + 1] = baseVel_est(1);
+        mj_data->qvel[ghostFreeQvelAdr + 2] = baseVel_est(2);
+        // angular velocity isn't part of the KF's state (orientation comes
+        // straight from the IMU, not the filter), so there's no estimate to
+        // write here; zero is harmless since qvel only feeds rendering-
+        // irrelevant quantities for a sensor-free, collision-free ghost
+        mj_data->qvel[ghostFreeQvelAdr + 3] = 0;
+        mj_data->qvel[ghostFreeQvelAdr + 4] = 0;
+        mj_data->qvel[ghostFreeQvelAdr + 5] = 0;
+
+        for (size_t i = 0; i < mj_interface.JointName.size(); i++)
+        {
+            mj_data->qpos[ghostJointQposAdr[i]] = qj_est(i);
+            mj_data->qvel[ghostJointQvelAdr[i]] = qjd_est(i);
         }
 
+        mj_forward(mj_model, mj_data);
+
+        // touch sensor
+        Eigen::Matrix<double, 2, 1> touchVals = state_estimator.getTouchSensorValue();
+        uiController.updateSensorFigure(mj_data->time, touchVals.data(), 2);
         uiController.updateScene();
-        stateUI.updateScene();
     }
 
     // free visualization storage
     uiController.Close();
-    stateUI.Close();
 
     return 0;
 }

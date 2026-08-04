@@ -282,6 +282,10 @@ Eigen::Matrix<double, 3, 1> StateEstimator::getAccelBiasEst() {
   return this->xhat_.segment(this->dimState_ - 3, 3);
 }
 
+void StateEstimator::setBasePosEst(const Eigen::Matrix<double, 3, 1> &pos) {
+  this->xhat_.segment(0, 3) = pos;
+}
+
 Eigen::Matrix<double, 2, 1> StateEstimator::getTouchSensorValue() {
   return Eigen::Matrix<double, 2, 1>(this->touch_lf, this->touch_rf);
 }

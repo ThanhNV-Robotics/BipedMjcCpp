@@ -420,6 +420,22 @@ std::vector<double> Pin_KinDyn::mapJointVecToOrder(const Eigen::VectorXd &vecIn,
     return out;
 }
 
+std::vector<double> Pin_KinDyn::mapJointVecFromOrder(const std::vector<double> &vecIn, const std::vector<std::string> &sourceOrder) const
+{
+    std::vector<double> out(ikJointNames.size(), 0.0);
+    for (size_t i = 0; i < ikJointNames.size(); i++)
+    {
+        auto it = std::find(sourceOrder.begin(), sourceOrder.end(), ikJointNames[i]);
+        if (it == sourceOrder.end())
+        {
+            std::cerr << "Pin_KinDyn::mapJointVecFromOrder: joint '" << ikJointNames[i] << "' not found in sourceOrder" << std::endl;
+            continue;
+        }
+        out[i] = vecIn[std::distance(sourceOrder.begin(), it)];
+    }
+    return out;
+}
+
 // must call computeDyn() first!
 void Pin_KinDyn::workspaceConstraint(Eigen::VectorXd &qFT, Eigen::VectorXd &tauJointFT)
 {

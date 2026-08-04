@@ -202,12 +202,4 @@
       <touch name="lf-touch" site="lf-tc" />
       <touch name="rf-touch" site="rf-tc" />
   </sensor>
-
-    <keyframe>
-        <!-- Standing pose: torso at defaultBaseHeight=0.75m, joints from reference.info defaultJointState -->
-        <key name="standing"
-             qpos="0 0 0.75 1 0 0 0
-                   -0.354 -0.015 -0.092  0.688  0.0 -0.339
-                   -0.354  0.015  0.092  0.688  0.0 -0.339"/>
-    </keyframe>
 </mujoco>

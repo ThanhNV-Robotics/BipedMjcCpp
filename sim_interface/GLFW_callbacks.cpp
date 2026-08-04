@@ -31,11 +31,6 @@ static void keyboard(GLFWwindow* window, int key, int scancode, int act, int mod
     ((UIctr*)(glfwGetWindowUserPointer(window)))->Keyboard(key, scancode, act, mods);
 }
 
-static void window_close_callback(GLFWwindow* window)
-{
-    ((UIctr*)(glfwGetWindowUserPointer(window)))->Close();
-}
-
 void UIctr::iniGLFW() {
     if( !glfwInit() )
         mju_error("Could not initialize GLFW");
@@ -69,8 +64,10 @@ void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
     mjv_moveCamera(mj_model, mjMOUSE_ROTATE_H, 0.0, 0.0, &scn, &cam);
 
     // install GLFW mouse and keyboard callbacks
+    // (no window-close callback: GLFW already flags the window
+    // should-close on its own when the user clicks the close widget --
+    // teardown happens once, after the main loop exits, via Close())
     glfwSetWindowUserPointer(window, this);
-    glfwSetWindowCloseCallback(window, window_close_callback);
     glfwSetKeyCallback(window, keyboard);
     glfwSetCursorPosCallback(window, mouse_move);
     glfwSetMouseButtonCallback(window, mouse_button);

@@ -91,6 +91,13 @@ public:
     // by name -- never assume any two joint-order conventions coincide.
     std::vector<double> mapJointVecToOrder(const Eigen::VectorXd &vecIn, const std::vector<std::string> &targetOrder) const;
 
+    // Inverse direction of mapJointVecToOrder: remap a vector indexed by an
+    // arbitrary source joint-name order (e.g. MJ_Interface::JointName) onto
+    // ikJointNames order -- needed to correctly populate q(7:)/dq(6:) for
+    // Pinocchio FK from measurements that arrive in a different order (e.g.
+    // MJ_Interface's alphabetical one), rather than assuming they coincide.
+    std::vector<double> mapJointVecFromOrder(const std::vector<double> &vecIn, const std::vector<std::string> &sourceOrder) const;
+
     Eigen::VectorXd integrateDIY(const Eigen::VectorXd &qI, const Eigen::VectorXd &dqI);
     static Eigen::Quaterniond intQuat(const Eigen::Quaterniond &quat, const Eigen::Matrix<double, 3, 1> &w);
     void workspaceConstraint(Eigen::VectorXd &qFT, Eigen::VectorXd &tauJointFT);
