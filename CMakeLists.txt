@@ -130,6 +130,20 @@ set_target_properties(qpOASES::qpOASES PROPERTIES
 )
 
 # ------------------------------------------------------------------
+# matplotlibcpp (header-only, common/matplotlibcpp.h). Wraps the
+# Python/matplotlib C API for plotting from C++, so it needs the
+# Python dev headers/library and numpy's headers (for the array API).
+# common/ is already on core's include path, so this interface target
+# only needs to supply the Python/NumPy link -- opt in per executable
+# with target_link_libraries(<tgt> PRIVATE matplotlibcpp), since not
+# every target that links core needs a Python dependency.
+# ------------------------------------------------------------------
+find_package(Python3 REQUIRED COMPONENTS Development NumPy)
+
+add_library(matplotlibcpp INTERFACE)
+target_link_libraries(matplotlibcpp INTERFACE Python3::Python Python3::NumPy)
+
+# ------------------------------------------------------------------
 # Dependencies needed to build MuJoCo's own "simulate" GUI from source
 # ------------------------------------------------------------------
 find_package(OpenGL REQUIRED)
@@ -179,20 +193,9 @@ target_include_directories(core PUBLIC
 target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads Eigen3::Eigen jsoncpp::jsoncpp quill::quill pinocchio::pinocchio qpOASES::qpOASES)
 
 # ------------------------------------------------------------------
-# Tests
+# Tests code
 # ------------------------------------------------------------------
-add_executable(init_mujoco_gui tests/init_mujoco_gui.cpp)
-target_link_libraries(init_mujoco_gui PRIVATE core dl)
 
-add_executable(init_mujoco_glfw_ui tests/init_mujoco_glfw_ui.cpp)
-target_link_libraries(init_mujoco_glfw_ui PRIVATE core dl)
-
-add_executable(init_pinocchio tests/init_pinocchio.cpp)
-target_link_libraries(init_pinocchio PRIVATE pinocchio::pinocchio)
-
-add_executable(joint_pd_control tests/joint_control/joint_pd_control.cpp)
-target_link_libraries(joint_pd_control PRIVATE core dl)
-target_link_libraries(joint_pd_control PRIVATE pinocchio::pinocchio)
 
 add_executable(float_control demo/float_control.cpp)
 target_link_libraries(float_control PRIVATE core dl)
@@ -205,3 +208,9 @@ target_link_libraries(walk_wbc PRIVATE pinocchio::pinocchio)
 add_executable(test_state_estimator tests/test_state_estimator.cpp)
 target_link_libraries(test_state_estimator PRIVATE core dl)
 target_link_libraries(test_state_estimator PRIVATE pinocchio::pinocchio)
+
+add_executable(test_joystick_interpreter tests/test_joystick_interpreter.cpp)
+target_link_libraries(test_joystick_interpreter PRIVATE core dl)
+
+add_executable(test_gait_scheduler tests/test_gait_scheduler.cpp)
+target_link_libraries(test_gait_scheduler PRIVATE core dl matplotlibcpp)
