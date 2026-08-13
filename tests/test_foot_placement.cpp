@@ -1,11 +1,10 @@
-#include "foot_placement.h"
 #include "my_gait_scheduler.h"
-#include "joystick_interpreter.h"
+#include "foot_placement.h"
+#include "Eigen/Dense"
 #include "data_bus.h"
 #include "matplotlibcpp.h"
 #include <vector>
-
-#include "bezier_1D.h"
+#include <iostream>
 
 namespace plt = matplotlibcpp;
 
@@ -13,82 +12,66 @@ using namespace std;
 
 int main ()
 {
-    cout<<"Test foot_placement"<<endl;
+    cout << "Test foot placement" << endl;
 
-    // // Init classes
+    const double dt = 0.001; // sampling time
+    const double tSwingIn = 1;
+
+    // init classes
+    MyGaitScheduler gaitScheduler_(tSwingIn, dt);
+    FootPlacement footPlacement_;
+    cout << "Created a gait scheduler" << endl;
     const int model_nv = 12;
-    const double dt = 0.001;
-    // const double tSwingIn = 1;
+    DataBus RobotState(model_nv); // 12 = model, init its own motion state to Stand
 
-    // MyGaitScheduler gaitScheduler_(tSwingIn, dt);
-    // DataBus RobotState(model_nv);
+    // Nominal standing pose. This test has no state estimator/dynamics feeding
+    // DataBus, so these stay fixed for the whole run -- just enough for the
+    // scheduler + foot placement's own computation to be exercised with
+    // sane numbers instead of uninitialized garbage. Values match the
+    // stand_legLength/width_hips used in float_control.cpp and walk_wbc.cpp.
+    const double standLegLength = 0.75;
+    RobotState.width_hips = 0.334;
+    RobotState.rpy[0] = RobotState.rpy[1] = RobotState.rpy[2] = 0;
+    RobotState.base_omega_W.setZero();
+    RobotState.base_pos << 0, 0, standLegLength;
+    RobotState.hip_r_pos_W << 0, -RobotState.width_hips / 2, standLegLength;
+    RobotState.hip_l_pos_W << 0,  RobotState.width_hips / 2, standLegLength;
+    RobotState.fe_r_pos_W  << 0, -RobotState.width_hips / 2, 0;
+    RobotState.fe_l_pos_W  << 0,  RobotState.width_hips / 2, 0;
+    footPlacement_.legLength = standLegLength;
 
-    // double stand_legLength = 0.75; // desired baselink height
-    // double foot_height = 0.07; // distance between the foot ankel joint and the bottom
-    // double  xv_des = 0.7;  // desired velocity in x direction
+    double t{0}; // time
+    double sim_duration = 6;
+    double startWalkingTime = 3;
 
-    // RobotState.width_hips = 0.334;
-    
-    // test bezier interpolation
+    std::vector<double> timePlot, phiPlot;
+    std::vector<Eigen::Vector3d> feRPlot, feLPlot, swingStartPlot, posHipPlot, posSTPlot, hipRPlot, hipLPlot;
+    std::vector<Eigen::Vector3d> swingDesPlot;
+    std::vector<double> footX_plot, footY_plot, footZ_plot;
 
-
-    const double T = 0.8; // swing time
-    const double simeTime = 2; //simulation time
-    const double height = 0.7;
-    const double len = 0;
-
-    double z{0};
-    double t{0};
-    double t0 = 0;
-    double s; //phase variable
-    double trajOut {0};
-
-    std::vector<double> timePlt, phiPlot, zPlot, trajPlot;
-
-    const std::vector<double> Z = {0, height, height, height, 0};
-    Bezier_1D Bswpid;
-    FootPlacement footPlanner;
-    Bswpid.P = Z;
-
-    while ( t < simeTime){
-        
-        s = (t - t0)/T;
-
-        if (s >= 1)
+    while (t < sim_duration)
+    {
+        if (t >= startWalkingTime)
         {
-            s = 0;
-            t0 = t;
+            gaitScheduler_.start(); // start the gait scheduler
+            RobotState.motionState = DataBus::Walk;
+            gaitScheduler_.dataBusRead(RobotState);
+            gaitScheduler_.step();
+            gaitScheduler_.dataBusWrite(RobotState);
+
+            footPlacement_.dataBusRead(RobotState);
+            footPlacement_.getSwingPos();
+            footPlacement_.dataBusWrite(RobotState);
         }
-        
-        z = Bswpid.getOut(s);
 
-        footPlanner.phi = s;
-        trajOut = footPlanner.Trajectory(0.2, height, len);
-
-        timePlt.push_back(t);
-        phiPlot.push_back(s);
-        zPlot.push_back(z);
-        trajPlot.push_back(trajOut);
-        
         t += dt;
     }
 
-    // plotting stuff
     plt::figure();
-    plt::plot(timePlt, phiPlot);
-    plt::xlabel("time (s)");
+    plt::plot(timePlot, phiPlot);
+    plt::xlabel("time [s]");
     plt::ylabel("phi");
 
-    plt::figure();
-    plt::plot(timePlt, zPlot);
-    plt::xlabel("time (s)");
-    plt::ylabel("Z");
-
-    plt::figure();
-    plt::plot(timePlt, trajPlot);
-    plt::xlabel("time (s)");
-    plt::ylabel("trajectory");
-    
     plt::show();
 
     return 0;
