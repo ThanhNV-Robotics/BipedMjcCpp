@@ -214,3 +214,9 @@ target_link_libraries(test_joystick_interpreter PRIVATE core dl)
 
 add_executable(test_gait_scheduler tests/test_gait_scheduler.cpp)
 target_link_libraries(test_gait_scheduler PRIVATE core dl matplotlibcpp)
+
+add_executable(test_foot_placement tests/test_foot_placement.cpp)
+target_link_libraries(test_foot_placement PRIVATE core dl matplotlibcpp)
+
+add_executable(test_robot_wrapper tests/test_robot_wrapper.cpp)
+target_link_libraries(test_robot_wrapper core dl)

@@ -36,7 +36,7 @@
     <axis xyz="0.0 1.0 0.0"/>
     <parent link="link0_torso"/>
     <child link="left_hip_pitch_link"/>
-    <limit effort="1000.0" lower="-1.0471975803375244" upper="1.0471975803375244" velocity="1000.0"/>
+    <limit effort="48.0" lower="-1.0471975803375244" upper="1.0471975803375244" velocity="100.0"/>
   </joint>
   <link name="left_hip_pitch_link">
     <inertial>
@@ -59,7 +59,7 @@
     <axis xyz="1.0 0.0 0.0"/>
     <parent link="left_hip_pitch_link"/>
     <child link="left_hip_roll_link"/>
-    <limit effort="1000.0" lower="-0.7853981852531433" upper="1.0471975803375244" velocity="1000.0"/>
+    <limit effort="48.0" lower="-0.7853981852531433" upper="1.0471975803375244" velocity="100"/>
   </joint>
   <link name="left_hip_roll_link">
     <inertial>
@@ -82,7 +82,7 @@
     <axis xyz="0.0 0.0 1.0"/>
     <parent link="left_hip_roll_link"/>
     <child link="left_hip_yaw_link"/>
-    <limit effort="1000.0" lower="-0.7853981852531433" upper="0.7853981852531433" velocity="1000.0"/>
+    <limit effort="1000.0" lower="-0.7853981852531433" upper="0.7853981852531433" velocity="100"/>
   </joint>
   <link name="left_hip_yaw_link">
     <inertial>
@@ -105,7 +105,7 @@
     <axis xyz="0.0 1.0 0.0"/>
     <parent link="left_hip_yaw_link"/>
     <child link="left_knee_link"/>
-    <limit effort="1000.0" lower="-0.1745329201221466" upper="2.094395160675049" velocity="1000.0"/>
+    <limit effort="1000.0" lower="-0.1745329201221466" upper="2.094395160675049" velocity="100"/>
   </joint>
   <link name="left_knee_link">
     <inertial>
@@ -128,7 +128,7 @@
     <axis xyz="1.0 0.0 0.0"/>
     <parent link="left_knee_link"/>
     <child link="left_ankle_roll_link"/>
-    <limit effort="1000.0" lower="-0.2617993950843811" upper="0.2617993950843811" velocity="1000.0"/>
+    <limit effort="1000.0" lower="-0.2617993950843811" upper="0.2617993950843811" velocity="100"/>
   </joint>
   <link name="left_ankle_roll_link">
     <inertial>
@@ -151,7 +151,7 @@
     <axis xyz="0.0 1.0 0.0"/>
     <parent link="left_ankle_roll_link"/>
     <child link="left_ankle_pitch_link"/>
-    <limit effort="1000.0" lower="-0.5235987901687622" upper="0.5235987901687622" velocity="1000.0"/>
+    <limit effort="1000.0" lower="-0.5235987901687622" upper="0.5235987901687622" velocity="100"/>
   </joint>
   <link name="left_ankle_pitch_link">
     <inertial>

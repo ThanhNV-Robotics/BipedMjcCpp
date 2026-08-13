@@ -47,6 +47,7 @@ int main ()
     std::vector<double> timePlot, phiPlot;
     std::vector<Eigen::Vector3d> feRPlot, feLPlot, swingStartPlot, posHipPlot, posSTPlot, hipRPlot, hipLPlot;
     std::vector<Eigen::Vector3d> swingDesPlot;
+    std::vector<double> footX_plot, footY_plot, footZ_plot;
 
     while (t < sim_duration )
     {
@@ -65,17 +66,6 @@ int main ()
             footPlacement_.dataBusWrite(RobotState);
         }
 
-        timePlot.push_back(t);
-        phiPlot.push_back(RobotState.phi);
-        feRPlot.push_back(RobotState.fe_r_pos_W);
-        feLPlot.push_back(RobotState.fe_l_pos_W);
-        swingStartPlot.push_back(RobotState.swingStartPos_W);
-        posHipPlot.push_back(RobotState.posHip_W);
-        posSTPlot.push_back(RobotState.posST_W);
-        hipRPlot.push_back(RobotState.hip_r_pos_W);
-        hipLPlot.push_back(RobotState.hip_l_pos_W);
-        swingDesPlot.push_back(RobotState.swingDesPosCur_W);
-
         t += dt;
     }
 
@@ -83,31 +73,6 @@ int main ()
     plt::plot(timePlot, phiPlot);
     plt::xlabel("time [s]");
     plt::ylabel("phi");
-
-    auto component = [](const std::vector<Eigen::Vector3d> &v, int idx) {
-        std::vector<double> out(v.size());
-        for (size_t i = 0; i < v.size(); i++)
-            out[i] = v[i](idx);
-        return out;
-    };
-    auto plotVec3 = [&](const std::string &title, const std::vector<Eigen::Vector3d> &v) {
-        plt::figure();
-        plt::named_plot("x", timePlot, component(v, 0));
-        plt::named_plot("y", timePlot, component(v, 1));
-        plt::named_plot("z", timePlot, component(v, 2));
-        plt::xlabel("time [s]");
-        plt::ylabel(title + " [m]");
-        plt::legend();
-    };
-
-    plotVec3("fe_r_pos_W", feRPlot);
-    plotVec3("fe_l_pos_W", feLPlot);
-    plotVec3("swingStartPos_W", swingStartPlot);
-    plotVec3("posHip_W", posHipPlot);
-    plotVec3("posST_W", posSTPlot);
-    plotVec3("hip_r_pos_W", hipRPlot);
-    plotVec3("hip_l_pos_W", hipLPlot);
-    plotVec3("swingDesPosCur_W", swingDesPlot);
 
     plt::show();
 
