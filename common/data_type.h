@@ -3,6 +3,7 @@
 
 #pragma once
 #include <Eigen/Dense>
+#include <pinocchio/multibody/joint/joint-basic-visitors.hxx>
 
 // alias for convinient uses
 // Vector types
@@ -26,16 +27,16 @@ using AngleAxis = Eigen::AngleAxisd;
 using Jacobian6 = Eigen::Matrix<double, 6, Eigen::Dynamic>; // 6 x nv
 using JacobianX = Eigen::MatrixXd;                          // general dynamic Jacobian
 
-struct JointState
+struct ActuatedJointState
 {
-    int robot_na; // number of actuated joint
+    int robot_na{0}; // number of actuated joint
 
     VectorXd qj; // joint position vector
     VectorXd dqj; // joint velocity vector
     VectorXd torquej; // joint torque 
 
     // constructor
-    JointState (int naIn) : robot_na(naIn)
+    ActuatedJointState (int naIn = 0) : robot_na(naIn)
     {
         // init member variables
         qj = VectorXd::Zero(robot_na);
@@ -49,4 +50,22 @@ struct IMUSensor
     Vector3d imu_accel_L = Vector3d::Zero(); // imu acceleration, in local imu frame
     Vector3d imu_gyro_L = Vector3d::Zero(); // imu angular velocity/ gyroscope in local frame
     Quat  imu_quat_ = Quat::Identity(); // imu quaternion
+};
+
+struct RobotConfiguration
+{
+    int robot_na{0}; // number of actuated joint
+
+    Vector3d qb = Vector3d::Zero();  // base position
+    Quat qb_quat = Quat::Identity();  // base quaternion
+    VectorXd qj ; // actuated joint position
+
+    // Constructor
+    RobotConfiguration (int naIn = 0) : robot_na(naIn)
+    {
+        // init member variables
+        qb = Vector3d::Zero();
+        qb_quat = Quat::Identity();
+        qj = VectorXd::Zero(robot_na);
+    }
 };
