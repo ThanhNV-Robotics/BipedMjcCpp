@@ -40,9 +40,9 @@ class RobotWrapper {
         const int model_na_; // number of actuated joint
         void printModelInfo ();
 
-        void updateJointState (JointState& joint_state); // update q from input robot sensor
+        void updateJointState (ActuatedJointState& joint_state); // update q from input robot sensor
 
-        Jacobian6 computeLeftFeetJointJacobianGlobal(JointState& joint_state, IMUSensor& imu_sensor);
+        Jacobian6 computeLeftFeetJointJacobianGlobal(RobotConfiguration& q);
         //Constructor
         RobotWrapper(const std::string& urdf_path);
 
@@ -52,19 +52,20 @@ class RobotWrapper {
         std::vector<pinocchio::JointIndex> left_leg_joint_ids_;  // joint IDs in left leg subtree
         std::vector<pinocchio::JointIndex> right_leg_joint_ids_; // joint IDs in right leg subtree
 
-        // std::vector<double> min_joint_pos_;
-        // std::vector<double> max_joint_pos_;
-        // std::vector<double> min_joint_vel_;
-        // std::vector<double> max_joint_vel_;
-        // std::vector<double> min_joint_torque_;
-        // std::vector<double> min_joint_torque_;
+        VectorXd min_joint_pos_;
+        VectorXd max_joint_pos_;
+        VectorXd joint_vel_limit_;
+        VectorXd joint_torque_limit_;
 
-        JointState joint_state_;
+        ActuatedJointState actuated_joint_state_;
 
         // VectorXd ddq; // joint acceleration
         Vector3d imu_accel_L_; // imu acceleration, in local imu frame
         Vector3d imu_gyro_L_; // imu angular velocity/ gyroscope in local frame
         Quat  imu_quat_W_; // imu quaternion, w.r.t global frame
 
+        RobotConfiguration q_;
+        ActuatedJointState qj_;
+        
         std::string robot_urdf_path_;
 };
