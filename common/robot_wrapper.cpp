@@ -134,8 +134,7 @@ void RobotWrapper::updateRobotState (RobotConfiguration q, RobotSpatialVelocity 
     
     // update base velocity
     this->dq.segment<3>(0) = q.quat_b_W.inverse() * dq.vb_W; // base linear velocity, converted to local base frame
-    this->dq.segment<3>(3) = q.quat_b_W.inverse() * dq.wb_W; // base angular velocity
-
+    this->dq.segment<3>(3) = q.quat_b_W.inverse() * dq.wb_W; // base angular velocity, convert to local frame also
 
     this->dq.segment(6, this->model_na_) = dq.dq_j; // joint velocity
 }
@@ -190,7 +189,7 @@ void RobotWrapper::computeJacobians() // Compute J_lf(q)
     */
     pin::forwardKinematics(pin_model_, pin_data_, q);
     pin::computeJointJacobians(pin_model_, pin_data_, q);
-    
+
     pin::getJointJacobian(pin_model_,pin_data_ , left_leg_joint_ids_.back() , pinocchio::LOCAL_WORLD_ALIGNED , J_Lfeet_W);
     pin::getJointJacobian(pin_model_,pin_data_ , right_leg_joint_ids_.back() , pinocchio::LOCAL_WORLD_ALIGNED , J_Rfeet_W);
     pin::getJointJacobian(pin_model_, pin_data_, 1, pinocchio::LOCAL_WORLD_ALIGNED, J_base_W);

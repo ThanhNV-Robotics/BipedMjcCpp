@@ -238,14 +238,20 @@ int main ()
         }
         
         // assign qvel
+        // For linear velocity of floating base, mujoco refer to World frame
+        mj_data->qvel[free_qvel_adr + 0] = robot_spatial_vel.vb_W.x(); 
+        mj_data->qvel[free_qvel_adr + 1] = robot_spatial_vel.vb_W.y();
+        mj_data->qvel[free_qvel_adr + 2] = robot_spatial_vel.vb_W.z();
 
-        Vector3d base_lin_vel_world = base_quat * base_lin_vel;
-        mj_data->qvel[free_qvel_adr + 0] = base_lin_vel_world.x();
-        mj_data->qvel[free_qvel_adr + 1] = base_lin_vel_world.y();
-        mj_data->qvel[free_qvel_adr + 2] = base_lin_vel_world.z();
+        // For angular velocity, mujoco refer to LOCAL body frame
+        // So we have to transform global angular to LOCAL frame
+        Vector3d base_ang_vel = robot_configuration.quat_b_W.inverse() * robot_spatial_vel.wb_W; // transform to LOCAL frame
+
         mj_data->qvel[free_qvel_adr + 3] = base_ang_vel.x();
         mj_data->qvel[free_qvel_adr + 4] = base_ang_vel.y();
         mj_data->qvel[free_qvel_adr + 5] = base_ang_vel.z();
+        
+        // assign joint velocity
         for (int j = 0; j < robot_wrapper.model_na_; j++)
         {
             mj_data->qvel[act_qvel_adr[j]] = dqj[j];
