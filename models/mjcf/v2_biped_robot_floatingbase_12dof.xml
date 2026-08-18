@@ -88,7 +88,7 @@
                 <joint type="hinge" name="left_hip_pitch_joint" axis="0 1 0" pos="0 0 0" range="-60 60" class = "AK109_actuator"/>
                 <geom type="mesh" class="visual" mesh="left_hip_pitch_link_v2" />
                 <geom class="collision" size="0.05 0.06 0.05" pos="0 0.065 0" type="box" />
-                <inertial pos="5.535E-3 59.218E-3 0.579E-3" mass="1.764" fullinertia="3.317E-3 2.287E-3 3.489E-3 -1.532E-4 5446.612E-9 1125.189E-9" />              
+                <inertial pos="3.703E-3 49.142E-3 -49.676E-3" mass="1.953" fullinertia="4.511E-3 4.159E-3 3.315E-3 -86060.731E-9 1.258E-4 1.110E-3" />              
                     
                     <body name="left_hip_roll_link" pos="0 61.114E-3 -66.874E-3" euler="15 0 0">
                         <joint type="hinge" name="left_hip_roll_joint" axis="1 0 0" pos="0 0 0" range="-45 60" class = "AK109_actuator"/>
@@ -135,7 +135,7 @@
                 <joint type="hinge" name="right_hip_pitch_joint" axis="0 1 0" pos="0 0 0" range="-60 60" class = "AK109_actuator"/>
                 <geom type="mesh" class="visual" mesh="right_hip_pitch_link_v2" />
                 <geom class="collision" size="0.05 0.06 0.05" pos="0 -0.065 0" type="box" />
-                <inertial pos="5.579E-3 -59.77E-3 0.581E-3" mass="1.764" fullinertia="3.245E-3 2.285E-3 3.417E-3 1.478E-4 5415.03E-9 -1738.735E-9" />
+                <inertial pos="3.822E-3 -49.04E-3 -49.628E-3" mass="1.953" fullinertia="4.535E-3 4.166E-3 3.33E-3 89505.93E-9 1.268E-9 -1.126E-3" />
 
                     <body name="right_hip_roll_link" pos="0 -61.114E-3 -66.874E-3" euler="-15 0 0">
                         <joint type="hinge" name="right_hip_roll_joint" axis="1 0 0" pos="0 0 0" ref="0" range="-60 35" class = "AK109_actuator"/>
