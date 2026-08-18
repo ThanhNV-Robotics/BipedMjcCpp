@@ -157,8 +157,8 @@ int main ()
 
         // pack to RobotConfiguration q_config
         RobotConfiguration q_config(robot_wrapper.model_na_);
-        q_config.qb = Vector3d(qb_x, qb_y, qb_z);
-        q_config.qb_quat = base_quat;
+        q_config.pos_b_W = Vector3d(qb_x, qb_y, qb_z);
+        q_config.quat_b_W = base_quat;
         q_config.qj = qj;
 
         // Compute left foot Jacobian using computeLeftFeetJointJacobianGlobal from robot_wrapper

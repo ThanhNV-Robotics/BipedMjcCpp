@@ -357,6 +357,7 @@ Pin_KinDyn::computeInK_Leg(const Eigen::Matrix3d &Rdes_L, const Eigen::Vector3d 
         if (errCompact.norm() < eps)
         {
             success = true;
+            
             break;
         }
         if (itr_count >= IT_MAX)

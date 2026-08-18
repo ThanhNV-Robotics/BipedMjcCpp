@@ -25,6 +25,7 @@ using AngleAxis = Eigen::AngleAxisd;
 // Jacobian matrix
 // Pinocchio frame Jacobian: 6 rows (3 linear + 3 angular), nv cols (dynamic)
 using Jacobian6 = Eigen::Matrix<double, 6, Eigen::Dynamic>; // 6 x nv
+using Jacobian3 = Eigen::Matrix<double, 3, Eigen::Dynamic>; // 3 x nv, mostly used for CoM Jacobian
 using JacobianX = Eigen::MatrixXd;                          // general dynamic Jacobian
 
 struct ActuatedJointState
@@ -56,16 +57,44 @@ struct RobotConfiguration
 {
     int robot_na{0}; // number of actuated joint
 
-    Vector3d qb = Vector3d::Zero();  // base position
-    Quat qb_quat = Quat::Identity();  // base quaternion
+    Vector3d pos_b_W = Vector3d::Zero();  // base position, in world frame
+    Quat quat_b_W = Quat::Identity();  // base quaternion, in world frame
     VectorXd qj ; // actuated joint position
 
     // Constructor
     RobotConfiguration (int naIn = 0) : robot_na(naIn)
     {
         // init member variables
-        qb = Vector3d::Zero();
-        qb_quat = Quat::Identity();
+        pos_b_W = Vector3d::Zero();
+        quat_b_W = Quat::Identity();
         qj = VectorXd::Zero(robot_na);
+    }
+};
+
+struct RobotSpatialVelocity
+{
+    int robot_nv{0}; 
+    Vector3d vb_W = Vector3d::Zero(); // base linear velocity, w.r.t world frame
+    Vector3d wb_W = Vector3d::Zero(); // base angular velocity, w.r.t world frame
+    VectorXd dq_j ;
+
+    // Constructor
+    RobotSpatialVelocity (int nvIn = 0) : robot_nv(nvIn)
+    {
+         vb_W = Vector3d::Zero(); // base linear velocity, w.r.t world frame
+         wb_W = Vector3d::Zero(); // base angular velocity, w.r.t world frame
+         dq_j  = VectorXd::Zero(robot_nv);
+    }
+
+    // helper fcn, stack to a flat vector
+    VectorXd getFlatVelocityVector () const //
+    {
+        const int nv = 6 + sizeof(dq_j);
+        VectorXd v(nv);
+        v.segment<3>(0) = vb_W; // base linear velocity
+        v.segment<3>(3) = wb_W; // base angular velocity
+        v.segment<6>(dq_j.size()) = dq_j; // joint velocity
+
+        return v;
     }
 };
