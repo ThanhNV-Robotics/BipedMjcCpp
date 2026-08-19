@@ -42,7 +42,7 @@ class RobotWrapper {
 
         //*********************************************** */
         // configuration space
-        VectorXd q, dq, ddq;
+        VectorXd q, dq, ddq;  //note for dq:  dq = [local_base_velocity_linear, local_base_velocity_angular, joint_velocities]
 
         // computed Jacobian matrix, in World frame
         Jacobian6 J_Rfeet_W, J_Lfeet_W, J_base_W;

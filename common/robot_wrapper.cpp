@@ -79,7 +79,12 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
 
     J_Rfeet_W = Jacobian6::Zero(6, model_nv_);
     J_Lfeet_W = Jacobian6::Zero(6, model_nv_);
-    J_base_W  = Jacobian6::Zero(6, model_nv_);
+
+    // J_base-W is always trivaly identity, so just set it one time
+    J_base_W  = Jacobian6::Zero(6, model_nv_); 
+    J_base_W.block<3, 3>(0, 0) = MatrixXd::Identity(3,3);
+    J_base_W.block<3, 3>(3, 3) = MatrixXd::Identity(3,3);
+
     Jcom_W    = Jacobian3::Zero(3, model_nv_);
 
     pos_R_feet_W = Vector3d::Zero();
@@ -201,8 +206,19 @@ void RobotWrapper::computeJacobiansandPosition() // Compute J_lf(q)
 
     pin::getJointJacobian(pin_model_,pin_data_ , left_leg_joint_ids_.back() , pinocchio::LOCAL_WORLD_ALIGNED , J_Lfeet_W);
     pin::getJointJacobian(pin_model_,pin_data_ , right_leg_joint_ids_.back() , pinocchio::LOCAL_WORLD_ALIGNED , J_Rfeet_W);
-    pin::getJointJacobian(pin_model_, pin_data_, 1, pinocchio::LOCAL_WORLD_ALIGNED, J_base_W);
+
     Jcom_W = pin_data_.Jcom;
+
+    // Transform Jacobians to accept input dq with base velocity in WORLD frame
+    Matrix3d base_rot = pin_data_.oMi[1].rotation();
+    MatrixXd Mpj = MatrixXd::Identity(model_nv_, model_nv_);
+    Mpj.block<3, 3>(0, 0) = base_rot.transpose();
+    Mpj.block<3, 3>(3, 3) = base_rot.transpose();
+
+    J_Lfeet_W = J_Lfeet_W * Mpj;
+    J_Rfeet_W = J_Rfeet_W * Mpj;
+    Jcom_W    = Jcom_W    * Mpj;
+
 
     // Frame position in World Frame
     pos_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].translation(); // right feet position

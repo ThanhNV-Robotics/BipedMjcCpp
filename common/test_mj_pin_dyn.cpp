@@ -38,7 +38,7 @@ bool TestDyn::testPinMjcJacobians (const std::string link_name)
 
         // pinocchio computation
         Vector6d v_pin_W = Vector6d::Zero();
-        v_pin_W = Jac * this->robot_wrapper_.dq; // World frame
+        v_pin_W = Jac * v.getFlatVelocityVector(); // accept global velocity input
 
         // mujoco computation
         Vector6d v_mjc_W = Vector6d::Zero();
@@ -57,7 +57,48 @@ bool TestDyn::testPinMjcJacobians (const std::string link_name)
     return rmse < mse_tol;
 }
 
-bool TestDyn::testPinMjcPositionandOrientation (const std::string link_name)
+bool TestDyn::testPinMjcPosition(const std::string link_name)
+{
+    const int n_samples = 50;
+    double mse = 0;
+    for (int i = 0; i < n_samples; i++)
+    {
+        // Generate a random configuration
+        RobotConfiguration q = generateRandomConfiguration(this->robot_wrapper_);
+        // Generate a random robot spatial velocity    
+        RobotSpatialVelocity v = generateRandomRobotSpatialVelocity(this->robot_wrapper_);
+        // Update robot wrapper state
+        this->robot_wrapper_.updateRobotState(q, v);
+        // Compute jacobians
+        robot_wrapper_.computeJacobiansandPosition();
+
+        Vector3d pos_feet_W;
+        if (link_name == "left_ankle_pitch_link")
+        {
+             pos_feet_W = this->robot_wrapper_.pos_L_feet_W;
+        }
+        if (link_name == "right_ankle_pitch_link")
+        {
+             pos_feet_W = this->robot_wrapper_.pos_R_feet_W;
+        }
+
+        // mujoco computation
+        Vector3d pos_feet_mjc_W = mjcComputeBodyLinkPos(q, v, link_name);
+
+        // computed mean squared error between 2 vector
+        mse += (pos_feet_W - pos_feet_mjc_W).squaredNorm();
+    }
+    const int N = (n_samples * 3); // mean over all samples and all 3 position components
+    double rmse = std::sqrt(mse / N);
+    std::cout << "RMSE between Pinocchio and MuJoCo position ("
+              << link_name << "): " << rmse << std::endl;
+
+    const double mse_tol = 1e-6;
+
+    return rmse < mse_tol;
+}
+
+bool TestDyn::testPinMjcOrientation (const std::string link_name)
 {
     const int n_samples = 50;
     double mse = 0;
@@ -72,34 +113,30 @@ bool TestDyn::testPinMjcPositionandOrientation (const std::string link_name)
         // Compute jacobians
         robot_wrapper_.computeJacobiansandPosition();
         
-        // NOTE: orientation comparison isn't wired up yet -- RobotWrapper's
-        // rot_L_feet_W/rot_R_feet_W are never assigned in
-        // computeJacobiansandPosition(), so there's nothing valid to compare
-        // against on the Pinocchio side yet. This only checks position.
-        Vector3d pos_feet_W;
+        Matrix3d rot_feet_W;
         if (link_name == "left_ankle_pitch_link")
         {
-             pos_feet_W = this->robot_wrapper_.pos_L_feet_W;
+             rot_feet_W = this->robot_wrapper_.rot_L_feet_W;
         }
         if (link_name == "right_ankle_pitch_link")
         {
-             pos_feet_W = this->robot_wrapper_.pos_R_feet_W;
+             rot_feet_W = this->robot_wrapper_.rot_R_feet_W;
         }
 
         // mujoco computation
-        Vector3d pos_feet_mjc_W = mjcComputeBodyLinkPos(q, v, link_name);
+        Matrix3d rot_feet_mjc_W = mjcComputeBodyLinkRot(q, v, link_name);
 
-        //computed mean squared error between 2 vector
-        mse += (pos_feet_W - pos_feet_mjc_W).squaredNorm();
+        // computed mean squared error between 2 vector
+        mse += (rot_feet_W - rot_feet_mjc_W).norm();
     }
-    const int N = (n_samples * 3); // mean over all samples and all 3 position components
+    const int N = (n_samples * 9); // mean over all samples and all 3 position components
     double rmse = std::sqrt(mse / N);
-    std::cout << "RMSE between Pinocchio and MuJoCo position ("
+    std::cout << "RMSE between Pinocchio and MuJoCo Rotation ("
               << link_name << "): " << rmse << std::endl;
 
-    const double mse_tol = 1e-6;
+    const double mse_tol = 1e-4;
 
-    return rmse < mse_tol;
+    return rmse < mse_tol;    
 }
 
 Vector6d TestDyn::mjcComputeBodyLinkVel (RobotConfiguration q, RobotSpatialVelocity v, const std::string link_name)
@@ -112,10 +149,14 @@ Vector6d TestDyn::mjcComputeBodyLinkVel (RobotConfiguration q, RobotSpatialVeloc
     mj_jacBody(mj_model_, mj_data_, jacp_buf.data(), jacr_buf.data(), link_id);
     Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor>> jacp(jacp_buf.data(), 3, mj_model_->nv);
     Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor>> jacr(jacr_buf.data(), 3, mj_model_->nv);
-    Eigen::Map<const VectorXd> qvel_full(mj_data_->qvel, mj_model_->nv);
 
-    Vector3d v_link_mj = jacp * qvel_full; // linear velocity in World frame
-    Vector3d w_link_mj = jacr * qvel_full; // angular velocity in World frame
+    // Transform MuJoCo Jacobians to accept global angular velocity in v.getFlatVelocityVector()
+    Matrix3d base_rot = q.quat_b_W.toRotationMatrix();
+    MatrixXd Mpj_mjc = MatrixXd::Identity(mj_model_->nv, mj_model_->nv);
+    Mpj_mjc.block<3, 3>(3, 3) = base_rot.transpose(); // MuJoCo qvel[3:6] is in local frame
+
+    Vector3d v_link_mj = (jacp * Mpj_mjc) * v.getFlatVelocityVector(); // linear velocity in World frame
+    Vector3d w_link_mj = (jacr * Mpj_mjc) * v.getFlatVelocityVector(); // angular velocity in World frame
     
     Vector6d v_link;
     v_link << v_link_mj, w_link_mj;
@@ -132,6 +173,16 @@ Vector3d TestDyn::mjcComputeBodyLinkPos (RobotConfiguration q, RobotSpatialVeloc
     return Vector3d(mj_data_->xpos[3 * link_id + 0],
                      mj_data_->xpos[3 * link_id + 1],
                      mj_data_->xpos[3 * link_id + 2]);
+}
+
+Matrix3d TestDyn::mjcComputeBodyLinkRot (RobotConfiguration q, RobotSpatialVelocity v, const std::string link_name)
+{
+    updateMujocoState(q, v);
+    const int link_id = mj_name2id(mj_model_, mjOBJ_BODY, link_name.c_str());
+    const double* rot_ptr = mj_data_->xmat + 9 * link_id;
+
+    Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> rot_mj(rot_ptr);
+    return rot_mj;
 }
 
 void TestDyn::updateMujocoState (RobotConfiguration q, RobotSpatialVelocity v)

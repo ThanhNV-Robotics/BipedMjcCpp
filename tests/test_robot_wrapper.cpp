@@ -24,11 +24,23 @@ int main ()
     test_result = tester.testPinMjcJacobians("left_ankle_pitch_link");
     test_result = tester.testPinMjcJacobians("right_ankle_pitch_link");
     
-    test_result = tester.testPinMjcPositionandOrientation("left_ankle_pitch_link");
-    test_result = tester.testPinMjcPositionandOrientation("right_ankle_pitch_link");
+    test_result = tester.testPinMjcPosition("left_ankle_pitch_link");
+    test_result = tester.testPinMjcPosition("right_ankle_pitch_link");
+
+    test_result = tester.testPinMjcOrientation("right_ankle_pitch_link");
 
 
-    // RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
-    // robot_wrapper.printFixedBaseModelInfo();
-    // robot_wrapper.printModelInfo();
+    RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
+    RobotConfiguration q = tester.generateRandomConfiguration(robot_wrapper);
+    // Generate a random robot spatial velocity    
+    RobotSpatialVelocity v = tester.generateRandomRobotSpatialVelocity(robot_wrapper);
+
+    robot_wrapper.updateRobotState(q, v);
+    robot_wrapper.computeJacobiansandPosition();
+
+    MatrixXd J_base_W;
+    J_base_W = robot_wrapper.J_base_W;
+    cout<<"Base Jacobian Matrix:"<<endl;
+    cout<<J_base_W<<endl;
+
 }

@@ -16,12 +16,13 @@ class TestDyn
         
 
         bool testPinMjcJacobians (const std::string link_name);
-        bool testPinMjcPositionandOrientation (const std::string link_name);
+        bool testPinMjcPosition (const std::string link_name);
+        bool testPinMjcOrientation (const std::string link_name);
 
         void updateMujocoState (RobotConfiguration q, RobotSpatialVelocity v);
         Vector6d mjcComputeBodyLinkVel (RobotConfiguration q, RobotSpatialVelocity v, const std::string link_name);
         Vector3d mjcComputeBodyLinkPos (RobotConfiguration q, RobotSpatialVelocity v, const std::string link_name);
-
+        Matrix3d mjcComputeBodyLinkRot (RobotConfiguration q, RobotSpatialVelocity v, const std::string link_name);
         // supporting methods
         double generate_random (double min, double max);
         RobotConfiguration generateRandomConfiguration (const RobotWrapper& robot_wrapper);
