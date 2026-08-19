@@ -66,19 +66,21 @@ void loadXml(const std::string& xml_in, mjModel*& model, mjData*& data)
 
 void printXmlInfo (const mjModel* model)
 {
-    for (int joint_id = 0; joint_id<= model->njnt; joint_id++)
+    for (int i = 0; i < model->njnt; i++)
     {
-        const char* joint_name = mj_id2name(model, mjOBJ_JOINT, joint_id);
-        const int qpos_address = model->jnt_qposadr[joint_id];
+        const char* joint_name = mj_id2name(model, mjOBJ_JOINT, i);
+        const int jnt_id = mj_name2id(model, mjOBJ_JOINT, joint_name);
+        const int qpos_address = model->jnt_qposadr[i];
 
         std::cout
-            << "Joint ID: " << joint_id
+            << "Joint ID: " << jnt_id
             << " | Name: " << (joint_name ? joint_name : "unnamed")
             << " | qpos address: " << qpos_address
+            << " | qvel_adr: "<< model->jnt_dofadr[jnt_id]
             << '\n';
     }
     double total_mass = 0;
-    for (int i = 0; i< model->nbody; i++)
+    for (int i = 0; i < model->nbody; i++)
     {
         total_mass += model->body_mass[i];
     }
@@ -159,7 +161,7 @@ RobotSpatialVelocity generateRandomRobotSpatialVelocity (const RobotWrapper& rob
 
     // generate random joint velocity
     VectorXd dqj = VectorXd::Zero(robot_wrapper.model_na_);
-    for (int i = 0; i <= robot_wrapper.model_na_; i++)
+    for (int i = 0; i < robot_wrapper.model_na_; i++)
     {
         dqj[i] = generate_random(-robot_wrapper.joint_vel_limit_[i], robot_wrapper.joint_vel_limit_[i]);
     }
@@ -197,6 +199,7 @@ int main ()
     // Test Jacobian computation
     const int n_sample = 50;
     std::vector<double> v_Lf_x_W, v_Lf_y_W, v_Lf_z_W;
+    std::vector<double> mj_v_Lf_x_W, mj_v_Lf_y_W, mj_v_Lf_z_W;
     std::vector<int> sample_plot;
 
     for (int i = 0 ; i < n_sample; i++)
@@ -208,12 +211,16 @@ int main ()
          // Update robot wrapper state
         robot_wrapper.updateRobotState(robot_configuration, robot_spatial_vel);
          // Compute Jacobians
-        robot_wrapper.computeJacobians();
+        robot_wrapper.computeJacobiansandPosition();
         Jacobian6 J_L_Feet_W = robot_wrapper.J_Lfeet_W; // Left feet Jacobian in World frame
 
-        // Compute global feet velocity using Jacobian camputed by pin
+        // Compute global feet velocity using Jacobian camputed by pin.
+        // J_L_Feet_W maps Pinocchio's own dq (base part in LOCAL frame, see
+        // updateRobotState()) to a world-frame foot velocity -- so we must
+        // use robot_wrapper.dq here, not the raw world-frame
+        // robot_spatial_vel (whose vb_W/wb_W haven't been rotated to local).
         VectorXd v_L_feet_W = VectorXd::Zero(6);
-        v_L_feet_W = J_L_Feet_W * robot_spatial_vel.getFlatVelocityVector();
+        v_L_feet_W = J_L_Feet_W * robot_wrapper.dq;
 
 
         // Compute velocity using mj_forward
@@ -254,22 +261,57 @@ int main ()
         // assign joint velocity
         for (int j = 0; j < robot_wrapper.model_na_; j++)
         {
-            mj_data->qvel[act_qvel_adr[j]] = dqj[j];
+            // offset by 6 bcz of the floating base velocity
+            mj_data->qvel[6+j] = robot_spatial_vel.dq_j[j];
         }
         mj_forward(mj_model, mj_data);
 
+        // Positional/rotational Jacobians (3 x nv, row-major) of the left
+        // foot body's frame origin (xpos), evaluated at the current mj_data
+        // state. This is the point Pinocchio's joint Jacobian is defined at.
+        // (mj_objectVelocity instead evaluates at the body's CoM/xipos,
+        // which is offset from xpos for this body -- that mismatch is what
+        // made this comparison disagree.)
+        const int left_foot_body_id = mj_name2id(mj_model, mjOBJ_BODY, "left_ankle_pitch_link");
+        std::vector<double> jacp_buf(3 * mj_model->nv);
+        std::vector<double> jacr_buf(3 * mj_model->nv);
+        mj_jacBody(mj_model, mj_data, jacp_buf.data(), jacr_buf.data(), left_foot_body_id);
+        Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor>> jacp(jacp_buf.data(), 3, mj_model->nv);
+        Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor>> jacr(jacr_buf.data(), 3, mj_model->nv);
+        Eigen::Map<const VectorXd> qvel_full(mj_data->qvel, mj_model->nv);
+
+        Vector3d v_foot_mj = jacp * qvel_full; // linear velocity in World frame
+        Vector3d w_foot_mj = jacr * qvel_full; // angular velocity in World frame
+
+        std::cout << "[sample " << i << "] v_pin = " << v_L_feet_W.head<3>().transpose()
+                   << " | v_mj = " << v_foot_mj.transpose()
+                   << " | diff = " << (v_L_feet_W.head<3>() - v_foot_mj).transpose() << '\n';
+
         v_Lf_x_W.push_back(v_L_feet_W[0]);
         v_Lf_y_W.push_back(v_L_feet_W[1]);
-        v_Lf_z_W.push_back(v_L_feet_W[2]);      
+        v_Lf_z_W.push_back(v_L_feet_W[2]);
+
+        mj_v_Lf_x_W.push_back(v_foot_mj[0]);
+        mj_v_Lf_y_W.push_back(v_foot_mj[1]);
+        mj_v_Lf_z_W.push_back(v_foot_mj[2]);
+
         sample_plot.push_back(i); 
     }
 
     // Ploting stuffs
     plt::figure();
     plt::named_plot("pinocchio", sample_plot, v_Lf_x_W, "--");
+    plt::named_plot("mujoco", sample_plot, mj_v_Lf_x_W, "r--");
     plt::xlabel("sample");
     plt::ylabel(std::string("left foot v_x-W"));
     plt::legend();
+
+    plt::figure();
+    plt::named_plot("mujoco", sample_plot, mj_v_Lf_x_W, "--");
+    plt::xlabel("sample");
+    plt::ylabel(std::string("left foot v_x-W"));
+    plt::legend();
+
     plt::show();
     
 

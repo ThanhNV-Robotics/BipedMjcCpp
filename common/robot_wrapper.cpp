@@ -21,10 +21,10 @@ namespace {
 pin::Model buildPinocchioModel(const std::string& urdf_path)
 {
     pin::Model model;
-    pin::JointModelFreeFlyer root_joint;
+    pin::JointModelFreeFlyer root_joint; 
     try
     {
-        pin::urdf::buildModel(urdf_path, root_joint, model);
+        pin::urdf::buildModel(urdf_path, root_joint, model); // add a floating base joint here
     }
     catch (const std::exception& e)
     {
@@ -59,12 +59,15 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
 {
     //*********************************************** */
     // model info
-    pin_model_ = buildPinocchioModel(urdf_path);
+    pin_model_ = buildPinocchioModel(urdf_path); // use this function for floating base
     pin_data_ = pin::Data(pin_model_);
     model_nq_ = pin_model_.nq;
     model_nv_ = pin_model_.nv;
     model_njoint_ = pin_model_.njoints;
     model_na_ = countActuatedJoints(pin_model_);
+
+    pinocchio::urdf::buildModel(urdf_path, model_fixedbase_);
+    data_fixedbase_ = pin::Data(model_fixedbase_);
 
     //*********************************************** */
     // accessible terms
@@ -114,6 +117,11 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     this->max_joint_pos_ = pin_model_.upperPositionLimit.tail(model_na_);
     this->joint_vel_limit_ = pin_model_.velocityLimit.tail(model_na_);
     this->joint_torque_limit_ = pin_model_.effortLimit.tail(model_na_);
+}
+
+void RobotWrapper::updateFixedBaseState(RobotConfiguration rb_cf, RobotSpatialVelocity rb_v)
+{
+    return;
 }
 
 void RobotWrapper::updateRobotState (RobotConfiguration q, RobotSpatialVelocity dq)
@@ -182,10 +190,10 @@ void RobotWrapper::computeDyn()
     CoM_pos = pin_data_.com[0];
 }
 
-void RobotWrapper::computeJacobians() // Compute J_lf(q)
+void RobotWrapper::computeJacobiansandPosition() // Compute J_lf(q)
 {
     /**
-    * @brief compute all the Jacobians
+    * @brief compute all the Jacobians and positions
     */
     pin::forwardKinematics(pin_model_, pin_data_, q);
     pin::computeJointJacobians(pin_model_, pin_data_, q);
@@ -194,6 +202,15 @@ void RobotWrapper::computeJacobians() // Compute J_lf(q)
     pin::getJointJacobian(pin_model_,pin_data_ , right_leg_joint_ids_.back() , pinocchio::LOCAL_WORLD_ALIGNED , J_Rfeet_W);
     pin::getJointJacobian(pin_model_, pin_data_, 1, pinocchio::LOCAL_WORLD_ALIGNED, J_base_W);
     Jcom_W = pin_data_.Jcom;
+
+    // Frame position in World Frame
+    pos_R_feet_W = pin_data_.oMi[right_leg_joint_ids_.back()].translation(); // right feet position
+    pos_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].translation();
+    pos_base_W = pin_data_.oMi[0].translation();
+
+    // Frame position in LOCAL BASE frame
+    
+
 }
 
 void RobotWrapper::printModelInfo()
@@ -243,6 +260,33 @@ void RobotWrapper::printModelInfo()
                   << " | Name: " << pin_model_.names[joint_id]
                   << " | Type: " << joint.shortname()
                   << " | Parent: " << pin_model_.parents[joint_id]
+                  << '\n';
+    }
+}
+
+void RobotWrapper::printFixedBaseModelInfo ()
+{
+    // print some basic model info
+    std::cout << "\n========== Pinocchio Fixed-Base Model Info ==========\n";
+
+    // Basic model dimensions
+    std::cout << "Number of joints (njoints): " << model_fixedbase_.njoints << '\n';
+    std::cout << "Number of positions (nq):   " << model_fixedbase_.nq << '\n';
+    std::cout << "Number of velocities (nv):  " << model_fixedbase_.nv << '\n';
+    std::cout << "Number of actuated joint (na):  " << countActuatedJoints(model_fixedbase_) << '\n';
+
+    std::cout << "\n------------------------------------------\n";
+    std::cout << "Joints:\n";
+
+    for (pin::JointIndex joint_id = 0; joint_id < model_fixedbase_.njoints; ++joint_id)
+    {
+        const auto joint = model_fixedbase_.joints[joint_id];
+        std::cout << "ID: " << joint_id
+                  << " | Name: " << model_fixedbase_.names[joint_id]
+                  << " | Type: " << joint.shortname()
+                  << " | nq: " << joint.nq()
+                  << " | nv: " << joint.nv()
+                  << " | Parent: " << model_fixedbase_.parents[joint_id]
                   << '\n';
     }
 }

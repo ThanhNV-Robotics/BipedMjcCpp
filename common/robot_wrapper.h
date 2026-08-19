@@ -41,7 +41,6 @@ class RobotWrapper {
         VectorXd joint_torque_limit_;
 
         //*********************************************** */
-        // accessible terms
         // configuration space
         VectorXd q, dq, ddq;
 
@@ -70,9 +69,14 @@ class RobotWrapper {
         //*********************************************** */
         // useful function
         void printModelInfo ();
+
+        void printFixedBaseModelInfo ();
+        void updateFixedBaseState(RobotConfiguration rb_cf, RobotSpatialVelocity rb_v);
+        
         void updateRobotState (RobotConfiguration rb_cf, RobotSpatialVelocity rb_v);
-        void computeJacobians();
+        void computeJacobiansandPosition();
         void computeDyn ();
+        void computePosition();
 
         //Constructor
         RobotWrapper(const std::string& urdf_path);
@@ -81,6 +85,9 @@ class RobotWrapper {
 
         pinocchio::Model pin_model_;
         pinocchio::Data pin_data_;
+
+        pinocchio::Model model_fixedbase_;
+        pinocchio::Data data_fixedbase_;
 
         std::vector<pinocchio::JointIndex> left_leg_joint_ids_;  // joint IDs in left leg subtree
         std::vector<pinocchio::JointIndex> right_leg_joint_ids_; // joint IDs in right leg subtree

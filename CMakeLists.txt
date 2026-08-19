@@ -218,8 +218,8 @@ target_link_libraries(test_gait_scheduler PRIVATE core dl matplotlibcpp)
 add_executable(test_foot_placement tests/test_foot_placement.cpp)
 target_link_libraries(test_foot_placement PRIVATE core dl matplotlibcpp)
 
-# add_executable(test_robot_wrapper tests/test_robot_wrapper.cpp)
-# target_link_libraries(test_robot_wrapper PRIVATE core dl matplotlibcpp)
+add_executable(test_robot_wrapper tests/test_robot_wrapper.cpp)
+target_link_libraries(test_robot_wrapper PRIVATE core dl matplotlibcpp)
 
 add_executable(test_pin_mcf_model tests/test_pin_mcf_model.cpp)
 target_link_libraries(test_pin_mcf_model PRIVATE core dl matplotlibcpp)

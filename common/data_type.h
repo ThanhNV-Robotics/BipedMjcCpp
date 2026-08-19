@@ -3,7 +3,6 @@
 
 #pragma once
 #include <Eigen/Dense>
-#include <pinocchio/multibody/joint/joint-basic-visitors.hxx>
 
 // alias for convinient uses
 // Vector types
@@ -11,7 +10,7 @@ using VectorXd  = Eigen::VectorXd;
 using Vector2d  = Eigen::Vector2d;
 using Vector3d  = Eigen::Vector3d;
 using Vector4d  = Eigen::Vector4d;
-
+using Vector6d  = Eigen::Matrix<double, 6, 1>;
 // Matrix types
 using MatrixXd  = Eigen::MatrixXd;
 using Matrix2d  = Eigen::Matrix2d;
@@ -89,11 +88,10 @@ struct RobotSpatialVelocity
     // helper fcn, stack to a flat vector
     VectorXd getFlatVelocityVector () const //
     {
-        const int nv = 6 + sizeof(dq_j);
-        VectorXd v(nv);
+        VectorXd v(6 + dq_j.size());
         v.segment<3>(0) = vb_W; // base linear velocity
         v.segment<3>(3) = wb_W; // base angular velocity
-        v.segment<6>(dq_j.size()) = dq_j; // joint velocity
+        v.segment(6, dq_j.size()) = dq_j; // joint velocity
 
         return v;
     }
