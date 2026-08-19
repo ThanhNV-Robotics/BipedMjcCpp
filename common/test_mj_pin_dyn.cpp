@@ -57,6 +57,51 @@ bool TestDyn::testPinMjcJacobians (const std::string link_name)
     return rmse < mse_tol;
 }
 
+bool TestDyn::testPinMjcPositionandOrientation (const std::string link_name)
+{
+    const int n_samples = 50;
+    double mse = 0;
+    for (int i = 0; i < n_samples; i++)
+    {
+        // Generate a random configuration
+        RobotConfiguration q = generateRandomConfiguration(this->robot_wrapper_);
+        // Generate a random robot spatial velocity    
+        RobotSpatialVelocity v = generateRandomRobotSpatialVelocity(this->robot_wrapper_);
+        // Update robot wrapper state
+        this->robot_wrapper_.updateRobotState(q, v);
+        // Compute jacobians
+        robot_wrapper_.computeJacobiansandPosition();
+        
+        // NOTE: orientation comparison isn't wired up yet -- RobotWrapper's
+        // rot_L_feet_W/rot_R_feet_W are never assigned in
+        // computeJacobiansandPosition(), so there's nothing valid to compare
+        // against on the Pinocchio side yet. This only checks position.
+        Vector3d pos_feet_W;
+        if (link_name == "left_ankle_pitch_link")
+        {
+             pos_feet_W = this->robot_wrapper_.pos_L_feet_W;
+        }
+        if (link_name == "right_ankle_pitch_link")
+        {
+             pos_feet_W = this->robot_wrapper_.pos_R_feet_W;
+        }
+
+        // mujoco computation
+        Vector3d pos_feet_mjc_W = mjcComputeBodyLinkPos(q, v, link_name);
+
+        //computed mean squared error between 2 vector
+        mse += (pos_feet_W - pos_feet_mjc_W).squaredNorm();
+    }
+    const int N = (n_samples * 3); // mean over all samples and all 3 position components
+    double rmse = std::sqrt(mse / N);
+    std::cout << "RMSE between Pinocchio and MuJoCo position ("
+              << link_name << "): " << rmse << std::endl;
+
+    const double mse_tol = 1e-6;
+
+    return rmse < mse_tol;
+}
+
 Vector6d TestDyn::mjcComputeBodyLinkVel (RobotConfiguration q, RobotSpatialVelocity v, const std::string link_name)
 {
     // update mujoco state first
@@ -75,6 +120,18 @@ Vector6d TestDyn::mjcComputeBodyLinkVel (RobotConfiguration q, RobotSpatialVeloc
     Vector6d v_link;
     v_link << v_link_mj, w_link_mj;
     return v_link;
+}
+
+Vector3d TestDyn::mjcComputeBodyLinkPos (RobotConfiguration q, RobotSpatialVelocity v, const std::string link_name)
+{
+    // update mujoco state first
+    updateMujocoState(q, v);
+    const int link_id = mj_name2id(mj_model_, mjOBJ_BODY, link_name.c_str());
+    // mj_data_->xpos is the body frame origin position in World frame,
+    // the same point Pinocchio's oMi[joint_id].translation() refers to.
+    return Vector3d(mj_data_->xpos[3 * link_id + 0],
+                     mj_data_->xpos[3 * link_id + 1],
+                     mj_data_->xpos[3 * link_id + 2]);
 }
 
 void TestDyn::updateMujocoState (RobotConfiguration q, RobotSpatialVelocity v)

@@ -1,6 +1,7 @@
 #include "robot_wrapper.h"
 #include "data_type.h"
 #include <pinocchio/algorithm/jacobian.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/multibody/fwd.hpp>
 
 //  Openning note: 
@@ -204,13 +205,22 @@ void RobotWrapper::computeJacobiansandPosition() // Compute J_lf(q)
     Jcom_W = pin_data_.Jcom;
 
     // Frame position in World Frame
-    pos_R_feet_W = pin_data_.oMi[right_leg_joint_ids_.back()].translation(); // right feet position
-    pos_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].translation();
+    pos_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].translation(); // right feet position
+    pos_R_feet_W = pin_data_.oMi[right_leg_joint_ids_.back()].translation();
     pos_base_W = pin_data_.oMi[0].translation();
 
-    // Frame position in LOCAL BASE frame
-    
+    // Orientation in World frame
+    rot_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].rotation();
+    rot_R_feet_W = pin_data_.oMi[right_leg_joint_ids_.back()].rotation();
 
+    // Frame position and rotation in LOCAL BASE frame
+    // forward kinematics for fixed base model
+    VectorXd qj_fixedbase = this->q.segment(7, this->model_na_); //extract the actuated joint position only
+    pin::forwardKinematics(model_fixedbase_, data_fixedbase_, qj_fixedbase);
+    pos_L_feet_B = data_fixedbase_.oMi[left_leg_joint_ids_.back() - 1].translation();
+    pos_R_feet_B = data_fixedbase_.oMi[right_leg_joint_ids_.back() - 1].translation();
+    rot_L_feet_B = data_fixedbase_.oMi[left_leg_joint_ids_.back() - 1].rotation();
+    rot_R_feet_B = data_fixedbase_.oMi[right_leg_joint_ids_.back() - 1].rotation();
 }
 
 void RobotWrapper::printModelInfo()

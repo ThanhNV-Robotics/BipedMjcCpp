@@ -24,6 +24,11 @@ int main ()
     test_result = tester.testPinMjcJacobians("left_ankle_pitch_link");
     test_result = tester.testPinMjcJacobians("right_ankle_pitch_link");
     
-    RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
-    robot_wrapper.printFixedBaseModelInfo();
+    test_result = tester.testPinMjcPositionandOrientation("left_ankle_pitch_link");
+    test_result = tester.testPinMjcPositionandOrientation("right_ankle_pitch_link");
+
+
+    // RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
+    // robot_wrapper.printFixedBaseModelInfo();
+    // robot_wrapper.printModelInfo();
 }
