@@ -10,6 +10,7 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
+#include <yaml-cpp/yaml.h>
 
 namespace {
 // Throws immediately with a clear message if the joint name doesn't exist in
@@ -80,20 +81,23 @@ Pin_KinDyn::Pin_KinDyn(std::string urdf_pathIn)
     l_hip_joint_fixed = getJointIdChecked(model_biped_fixed, "left_hip_roll_joint");
     base_joint = getJointIdChecked(model_biped, "root_joint");
 
-    // read joint pvt parameters
-    Json::Reader reader;
-    Json::Value root_read;
-    std::ifstream in("joint_ctrl_config.json", std::ios::binary);
+    // read joint pvt parameters. Note: this was previously reading a
+    // "joint_ctrl_config.json" path that doesn't exist anywhere in this repo
+    // (missing the "config/" prefix used everywhere else), so
+    // motorMaxTorque/motorMaxPos/motorMinPos silently ended up all-zero;
+    // pointed at the real config now that workspaceConstraint() (the only
+    // consumer of these three, currently unused elsewhere) would need them.
+    YAML::Node root_read = YAML::LoadFile("config/12dof_joint_config.yaml");
 
     motorMaxTorque = Eigen::VectorXd::Zero(motorName.size());
     motorMaxPos = Eigen::VectorXd::Zero(motorName.size());
     motorMinPos = Eigen::VectorXd::Zero(motorName.size());
-    reader.parse(in, root_read);
     for (int i = 0; i < motorName.size(); i++)
     {
-        motorMaxTorque(i) = (root_read[motorName[i]]["maxTorque"].asDouble());
-        motorMaxPos(i) = (root_read[motorName[i]]["maxPos"].asDouble());
-        motorMinPos(i) = (root_read[motorName[i]]["minPos"].asDouble());
+        const YAML::Node &jt = root_read[motorName[i]];
+        motorMaxTorque(i) = jt["maxTorque"].as<double>();
+        motorMaxPos(i) = jt["maxPos"].as<double>();
+        motorMinPos(i) = jt["minPos"].as<double>();
     }
     motorReachLimit.assign(motorName.size(), false);
     tauJointOld = Eigen::VectorXd::Zero(motorName.size());

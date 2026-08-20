@@ -4,7 +4,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include "json/json.h" // to process json config file
+#include <yaml-cpp/yaml.h> // to process yaml config file
 #include <iostream>
 
 #include "data_bus.h"
@@ -40,9 +40,9 @@ public:
 
     double touch_lf{0}, touch_rf{0}; // touch sensor value (measure the norminal contact force)
 
-    std::vector<std::string> JointName = {}; // this will be initialized with constructor by parsing the json config file
+    std::vector<std::string> JointName = {}; // this will be initialized with constructor by parsing the yaml config file
 
-    MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char *jsonPath); // constructor
+    MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char *yamlPath); // constructor
     void updateSensorValues(); // get motor joint states 
     void setMotorsTorque(std::vector<double> &tauIn); // set joint torque
     void printInfo ();

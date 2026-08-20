@@ -50,7 +50,7 @@ int main(int argc, const char** argv)
     //************************************************************* */
     // ini classes
     //************************************************************* */
-    const std::string joint_ctrl_config_path = "config/12dof_joint_config.json";
+    const std::string joint_ctrl_config_path = "config/12dof_joint_config.yaml";
     UIctr uiController(mj_model,mj_data);   // UI control for Mujoco
     MJ_Interface mj_interface(mj_model, mj_data, joint_ctrl_config_path.c_str()); // data interface for Mujoco
     // print out xml model info
@@ -194,7 +194,7 @@ int main(int argc, const char** argv)
             // motors_pos_cur/motors_vel_cur straight into q(7:)/dq(6:),
             // assuming they're already in Pinocchio's joint order -- but
             // MJ_Interface actually returns them alphabetically (from its
-            // JSON config's keys), a different order entirely. Left as-is,
+            // YAML config's keys), a different order entirely. Left as-is,
             // computeJ_dJ() below would run FK on a shuffled leg
             // configuration, handing the EKF a badly wrong foot-position
             // measurement that biases the base-position estimate by several

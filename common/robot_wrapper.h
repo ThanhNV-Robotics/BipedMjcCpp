@@ -19,7 +19,6 @@
 
 #include "data_bus.h"
 #include <string>
-#include "json/json.h"
 #include <vector>
 
 #include "data_type.h"
@@ -76,7 +75,6 @@ class RobotWrapper {
         void updateRobotState (RobotConfiguration rb_cf, RobotSpatialVelocity rb_v);
         void computeJacobiansandPosition();
         void computeDyn ();
-        void computePosition();
 
         //Constructor
         RobotWrapper(const std::string& urdf_path);

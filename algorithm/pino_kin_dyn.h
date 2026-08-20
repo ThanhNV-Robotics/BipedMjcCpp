@@ -19,7 +19,6 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include "pinocchio/algorithm/aba.hpp"
 #include "data_bus.h"
 #include <string>
-#include "json/json.h"
 #include <vector>
 
 class Pin_KinDyn
@@ -29,7 +28,7 @@ public:
     const std::vector<std::string> motorName = {"right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
                                                 "right_knee_pitch_joint", "right_ankle_roll_joint", "right_ankle_pitch_joint",
                                                 "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
-                                                "left_knee_pitch_joint","left_ankle_roll_joint", "left_ankle_pitch_joint"}; // joint name in urdf and jason config files
+                                                "left_knee_pitch_joint","left_ankle_roll_joint", "left_ankle_pitch_joint"}; // joint name in urdf and yaml config files
     Eigen::VectorXd motorMaxTorque;
     Eigen::VectorXd motorMaxPos;
     Eigen::VectorXd motorMinPos;

@@ -8,12 +8,11 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 
 //-------------------------------------------NOTE------------------------------------//
 //
-// The damping(Kd) in the joint_ctrl_config.json is relatively large, and they may not match the real ones.
+// The damping(Kd) in the joint_ctrl_config.yaml is relatively large, and they may not match the real ones.
 //
 //-----------------------------------------------------------------------------------//
 #pragma once
-#include <fstream>
-#include "json/json.h"
+#include <yaml-cpp/yaml.h>
 #include <string>
 #include "LPF_fst.h"
 #include <vector>
@@ -29,7 +28,7 @@ public:
     std::vector<double> motor_vel;
     std::vector<double> motor_tor_out_link; // final tau output
     std::vector<double> motor_tor_out_motor; // final tau output
-    PVT_Ctr(double timeStepIn, const char * jsonPath);
+    PVT_Ctr(double timeStepIn, const char * yamlPath);
     void calMotorsPVT();
     void calMotorsPVT(double deltaP_Lim);
     void enablePV(); // enable PV control item
@@ -48,7 +47,8 @@ public:
     // Joint order matching motor_pos_des/motor_vel_des/motor_tor_des and every
     // other per-joint vector below -- callers must map onto this order by
     // name, not assume it matches any other model's/file's joint order (this
-    // one comes from jsoncpp's getMemberNames(), which sorts alphabetically).
+    // one is the config file's top-level keys, sorted alphabetically in the
+    // constructor since yaml-cpp otherwise preserves the file's own order).
     const std::vector<std::string> &getMotorNames() const { return motorName; }
 
     std::vector<double> motor_pos_des; // P des
@@ -69,7 +69,7 @@ private:
     std::vector<LPF_Fst> traj_vel_lpf; // smooths genTestTrajectory's reference velocity
     std::vector<int> PV_enable;
     double sign(double in);
-    std::vector<std::string> motorName; // joint names, populated from jsonPath's top-level keys in the constructor
+    std::vector<std::string> motorName; // joint names, populated from yamlPath's top-level keys in the constructor
 };
 
 

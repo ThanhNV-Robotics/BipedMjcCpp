@@ -125,11 +125,6 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     this->joint_torque_limit_ = pin_model_.effortLimit.tail(model_na_);
 }
 
-void RobotWrapper::updateFixedBaseState(RobotConfiguration rb_cf, RobotSpatialVelocity rb_v)
-{
-    return;
-}
-
 void RobotWrapper::updateRobotState (RobotConfiguration q, RobotSpatialVelocity dq)
 {
     /**
@@ -194,6 +189,24 @@ void RobotWrapper::computeDyn()
 
     // cal CoM
     CoM_pos = pin_data_.com[0];
+
+    // Transform to world frame to accept global frame in put
+
+    // Transform Jacobians to accept input dq with base velocity in WORLD frame
+    Matrix3d base_rot = pin_data_.oMi[1].rotation();
+    MatrixXd Mpj, Mpj_inv;
+    Mpj = MatrixXd::Identity(model_nv_, model_nv_);
+    Mpj_inv = Eigen::MatrixXd::Identity(model_nv_, model_nv_);
+    Mpj.block<3, 3>(0, 0) = base_rot.transpose();
+    Mpj.block<3, 3>(3, 3) = base_rot.transpose();
+    Mpj_inv.block(0, 0, 3, 3) = base_rot;
+    Mpj_inv.block(3, 3, 3, 3) = base_rot;
+
+    dyn_M = Mpj_inv * dyn_M * Mpj;
+    dyn_M_inv = Mpj_inv * dyn_M_inv * Mpj;
+    dyn_C = Mpj_inv * dyn_C * Mpj;
+    dyn_G = Mpj_inv * dyn_G;
+    dyn_Non = Mpj_inv * dyn_Non;
 }
 
 void RobotWrapper::computeJacobiansandPosition() // Compute J_lf(q)

@@ -55,7 +55,7 @@ int main(int argc, const char** argv)
     
 
     // ini classes
-    const std::string joint_ctrl_config_path = "config/12dof_joint_config.json";
+    const std::string joint_ctrl_config_path = "config/12dof_joint_config.yaml";
     UIctr uiController(mj_model,mj_data);   // UI control for Mujoco
 
     // ui for state estimation
@@ -136,7 +136,7 @@ int main(int argc, const char** argv)
     // rather than trusting RobotState.q(7..18), which comes from
     // DataBus::updateQ() assuming motor_pos_cur is already in Pin_KinDyn's
     // joint order, when MJ_Interface's order is actually alphabetical (from
-    // its JSON config's keys).
+    // its YAML config's keys).
     std::vector<int> mjQposAdr(kinDynSolver.ikJointNames.size()), stateUiQposAdr(kinDynSolver.ikJointNames.size());
     for (size_t i = 0; i < kinDynSolver.ikJointNames.size(); i++)
     {

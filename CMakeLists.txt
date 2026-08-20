@@ -9,217 +9,152 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ------------------------------------------------------------------
-# MuJoCo (prebuilt binary release vendored under third_party/mujoco)
-# ------------------------------------------------------------------
-set(MUJOCO_DIR ${CMAKE_SOURCE_DIR}/third_party/mujoco)
+# Vendored third-party dirs that are both a link target (contain a prebuilt
+# .a/.so) and an include path (contain their own public headers).
+set(dirEigen "third_party/eigen3")
+set(dirGlfw "third_party/glfw")
+set(dirPino "third_party/pinocchio")
+set(dirQuill "third_party/quill")
+set(dirQpOASES "third_party/qpOASES")
+set(dirMatplotlib "third_party/matplotlibcpp")
 
-add_library(mujoco::mujoco SHARED IMPORTED)
-set_target_properties(mujoco::mujoco PROPERTIES
-  IMPORTED_LOCATION ${MUJOCO_DIR}/lib/libmujoco.so
-  INTERFACE_INCLUDE_DIRECTORIES ${MUJOCO_DIR}/include
+# Include-only paths: extra header locations needed on top of the dirs above.
+set(incFmt "${dirQuill}/quill/bundled")  # quill vendors its own fmt copy here
+set(incMujoco "third_party/mujoco/include")
+set(incMujocoSim "third_party/mujoco/simulate")  # SimUI wraps mujoco's own simulate.h/glfw_adapter.h
+
+set(allDir ${dirEigen} ${dirGlfw} ${dirPino} ${dirQuill} ${dirQpOASES} ${dirMatplotlib})
+set(allInc ${allDir} ${incFmt} ${incMujoco} ${incMujocoSim})
+
+include_directories(${allInc})
+include_directories("algorithm" "common" "math" "sim_interface")
+
+# Pick which arch-suffixed variant of the vendored static libs to link
+# (e.g. libpinocchio_lin_x64.a vs libpinocchio_lin_arm64.a).
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(archSuffix "lin_arm64")
+else()
+  set(archSuffix "lin_x64")
+endif()
+
+# MuJoCo and qpOASES each ship as a single shared library per arch that
+# doesn't live in a system lib directory (qpOASES's, unlike the other
+# vendored libs, sits under an arch-suffixed subdirectory rather than
+# having the suffix baked into its filename), so bake both locations into
+# the executables' runtime search path.
+set(CMAKE_BUILD_RPATH
+  "${CMAKE_SOURCE_DIR}/third_party/mujoco/lib"
+  "${CMAKE_SOURCE_DIR}/${dirQpOASES}/${archSuffix}"
 )
+link_directories(${dirGlfw} ${dirPino} ${dirQuill} "third_party/mujoco/lib" "${dirQpOASES}/${archSuffix}")
 
-# ------------------------------------------------------------------
-# Pinocchio (prebuilt static library vendored under third_party/pinocchio).
-# Pinocchio itself needs Eigen, Boost (filesystem/system), and urdfdom
-# (for URDF parsing) -- all available as system packages, so we just
-# find them and attach them to the imported target's INTERFACE.
-# ------------------------------------------------------------------
-set(PINOCCHIO_DIR ${CMAKE_SOURCE_DIR}/third_party/pinocchio)
-
+# Pinocchio's URDF parser needs Boost::filesystem/system and urdfdom.
+# third_party/boost only vendors 1.76 headers, which don't compile against
+# this system's GCC 13/libstdc++, so Boost is resolved via find_package()
+# against the system install (1.83) instead of being added to the include
+# path; urdfdom is likewise resolved against the system package (via
+# pkg-config) rather than the vendored third_party/urdfdom static libs.
+# OpenGL is needed to build mujoco's own "simulate" GUI from source.
+# Python3+NumPy are needed by matplotlibcpp, which embeds a Python
+# interpreter to drive matplotlib.
 find_package(Eigen3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS filesystem system)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(urdfdom REQUIRED IMPORTED_TARGET urdfdom)
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-  set(PINOCCHIO_LIB ${PINOCCHIO_DIR}/libpinocchio_lin_arm64.a)
-else()
-  set(PINOCCHIO_LIB ${PINOCCHIO_DIR}/libpinocchio_lin_x64.a)
-endif()
-
-add_library(pinocchio::pinocchio STATIC IMPORTED)
-set_target_properties(pinocchio::pinocchio PROPERTIES
-  IMPORTED_LOCATION ${PINOCCHIO_LIB}
-  INTERFACE_INCLUDE_DIRECTORIES ${PINOCCHIO_DIR}
-)
-target_link_libraries(pinocchio::pinocchio INTERFACE
-  Eigen3::Eigen
-  Boost::filesystem
-  Boost::system
-  PkgConfig::urdfdom
-)
-target_compile_definitions(pinocchio::pinocchio INTERFACE PINOCCHIO_STATIC)
-
-# ------------------------------------------------------------------
-# jsoncpp (prebuilt static library vendored under third_party/jsoncpp)
-# ------------------------------------------------------------------
-set(JSONCPP_DIR ${CMAKE_SOURCE_DIR}/third_party/jsoncpp)
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-  set(JSONCPP_LIB ${JSONCPP_DIR}/libjsoncpp_lin_arm64.a)
-else()
-  set(JSONCPP_LIB ${JSONCPP_DIR}/libjsoncpp_lin_x64.a)
-endif()
-
-add_library(jsoncpp::jsoncpp STATIC IMPORTED)
-set_target_properties(jsoncpp::jsoncpp PROPERTIES
-  IMPORTED_LOCATION ${JSONCPP_LIB}
-  INTERFACE_INCLUDE_DIRECTORIES ${JSONCPP_DIR}
-)
-
-# ------------------------------------------------------------------
-# Quill (prebuilt static library vendored under third_party/quill).
-# Quill bundles its own copy of fmt under quill/bundled/fmt, which is
-# why "fmt/format.h" needs quill/bundled on the include path too.
-# ------------------------------------------------------------------
-set(QUILL_DIR ${CMAKE_SOURCE_DIR}/third_party/quill)
 find_package(Threads REQUIRED)
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-  set(QUILL_LIB ${QUILL_DIR}/libquill_lin_arm64.a)
-else()
-  set(QUILL_LIB ${QUILL_DIR}/libquill_lin_x64.a)
-endif()
-
-add_library(quill::quill STATIC IMPORTED)
-set_target_properties(quill::quill PROPERTIES
-  IMPORTED_LOCATION ${QUILL_LIB}
-  INTERFACE_INCLUDE_DIRECTORIES "${QUILL_DIR};${QUILL_DIR}/quill/bundled"
-)
-target_link_libraries(quill::quill INTERFACE Threads::Threads)
-
-# ------------------------------------------------------------------
-# GLFW (prebuilt static library vendored under third_party/glfw).
-# The binary dlopen()s X11/Wayland at runtime rather than linking them
-# directly (see its own undefined symbols), so dl + Threads are all it
-# needs at link time -- both already available on any Linux desktop.
-# ------------------------------------------------------------------
-set(GLFW_DIR ${CMAKE_SOURCE_DIR}/third_party/glfw)
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-  set(GLFW_LIB ${GLFW_DIR}/libglfw3_lin_arm64.a)
-else()
-  set(GLFW_LIB ${GLFW_DIR}/libglfw3_lin_x64.a)
-endif()
-
-add_library(glfw::glfw STATIC IMPORTED)
-set_target_properties(glfw::glfw PROPERTIES
-  IMPORTED_LOCATION ${GLFW_LIB}
-  INTERFACE_INCLUDE_DIRECTORIES ${GLFW_DIR}
-)
-target_link_libraries(glfw::glfw INTERFACE dl Threads::Threads)
-
-# ------------------------------------------------------------------
-# qpOASES (prebuilt shared library vendored under third_party/qpOASES,
-# used by algorithm/mpc.cpp as the QP solver).
-# ------------------------------------------------------------------
-set(QPOASES_DIR ${CMAKE_SOURCE_DIR}/third_party/qpOASES)
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-  set(QPOASES_LIB ${QPOASES_DIR}/lin_arm64/libqpOASES.so)
-else()
-  set(QPOASES_LIB ${QPOASES_DIR}/lin_x64/libqpOASES.so)
-endif()
-
-add_library(qpOASES::qpOASES SHARED IMPORTED)
-set_target_properties(qpOASES::qpOASES PROPERTIES
-  IMPORTED_LOCATION ${QPOASES_LIB}
-  INTERFACE_INCLUDE_DIRECTORIES ${QPOASES_DIR}
-)
-
-# ------------------------------------------------------------------
-# matplotlibcpp (header-only, common/matplotlibcpp.h). Wraps the
-# Python/matplotlib C API for plotting from C++, so it needs the
-# Python dev headers/library and numpy's headers (for the array API).
-# common/ is already on core's include path, so this interface target
-# only needs to supply the Python/NumPy link -- opt in per executable
-# with target_link_libraries(<tgt> PRIVATE matplotlibcpp), since not
-# every target that links core needs a Python dependency.
-# ------------------------------------------------------------------
+find_package(OpenGL REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Development NumPy)
 
+# yaml-cpp is the one dependency not vendored as a prebuilt lib under
+# third_party/ -- it's fetched and built from source instead, so this is
+# the one target in the project that needs network access on a fresh
+# `cmake` configure.
+include(FetchContent)
+FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG 0.8.0
+)
+FetchContent_MakeAvailable(yaml-cpp)
+
+# MuJoCo's own "simulate" GUI has no prebuilt lib, so build it from the
+# vendored source under third_party/mujoco/simulate. sim_interface/SimUI
+# wraps this to visualize an externally-owned mjModel/mjData. The
+# Screenshot-to-PNG feature (and its lodepng dependency) was patched out of
+# our copy of simulate.cc -- not needed, and one less vendored library.
+add_library(mujoco_simulate STATIC
+  "${incMujocoSim}/simulate.cc"
+  "${incMujocoSim}/glfw_adapter.cc"
+  "${incMujocoSim}/glfw_dispatch.cc"
+  "${incMujocoSim}/platform_ui_adapter.cc"
+)
+target_link_libraries(mujoco_simulate mujoco glfw3_${archSuffix} OpenGL::GL Threads::Threads dl)
+
+# matplotlibcpp (header-only, common/matplotlibcpp.h) wraps the
+# Python/matplotlib C API for plotting from C++. common/ is already on the
+# include path, so this interface target only needs to supply the
+# Python/NumPy link -- opt in per executable with
+# target_link_libraries(<tgt> PRIVATE matplotlibcpp), since not every
+# target that links core needs a Python dependency.
 add_library(matplotlibcpp INTERFACE)
 target_link_libraries(matplotlibcpp INTERFACE Python3::Python Python3::NumPy)
 
-# ------------------------------------------------------------------
-# Dependencies needed to build MuJoCo's own "simulate" GUI from source
-# ------------------------------------------------------------------
-find_package(OpenGL REQUIRED)
-
-# MuJoCo's simulate UI sources, vendored under third_party/mujoco/simulate.
-# The Screenshot-to-PNG feature (and its lodepng dependency) was patched out
-# of our copy of simulate.cc -- not needed, and one less vendored library.
-set(MUJOCO_SIMULATE_DIR ${MUJOCO_DIR}/simulate)
-add_library(mujoco_simulate STATIC
-  ${MUJOCO_SIMULATE_DIR}/simulate.cc
-  ${MUJOCO_SIMULATE_DIR}/glfw_adapter.cc
-  ${MUJOCO_SIMULATE_DIR}/glfw_dispatch.cc
-  ${MUJOCO_SIMULATE_DIR}/platform_ui_adapter.cc
-)
-target_include_directories(mujoco_simulate PUBLIC ${MUJOCO_SIMULATE_DIR})
-target_link_libraries(mujoco_simulate PUBLIC
-  mujoco::mujoco
-  glfw::glfw
-  OpenGL::GL
-  Threads::Threads
-)
-
-# ------------------------------------------------------------------
-# core: the project's own code (algorithm/common/math/sim_interface, as
-# it grows). Every demo/test executable links against this instead of
-# repeating source lists, mirroring OpenLoong-Dyn-Control's structure.
-# GLOB on a folder that doesn't exist yet (algorithm/, common/, math/)
-# just yields nothing, so this stays a no-op until those show up.
-# CONFIGURE_DEPENDS re-globs on every build, so a fresh `cmake --build`
-# picks up new files without you having to re-run `cmake -S . -B build`
-# by hand (still required if you *remove* a file, per CMake docs).
-# ------------------------------------------------------------------
+# Collect this project's own sources into a single core library so every
+# demo/test executable can link against "core" instead of repeating the
+# source list. GLOB_RECURSE + CONFIGURE_DEPENDS re-globs on every build, so
+# a fresh `cmake --build` picks up new files without you having to re-run
+# `cmake -S . -B build` by hand (still required if you *remove* a file,
+# per CMake docs).
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
-  algorithm/*.cpp
-  common/*.cpp
-  math/*.cpp
-  sim_interface/*.cpp
+  "algorithm/*.cpp" "common/*.cpp" "math/*.cpp" "sim_interface/*.cpp"
 )
 
+# Vendored static libs core links against, before arch-suffixing.
+set(corLibs pinocchio quill)
+
+# Expand each name above into its arch-specific filename, e.g.
+# "pinocchio" -> "pinocchio_lin_x64" (matches libpinocchio_lin_x64.a).
+set(sysCoreLibs)
+foreach(lib ${corLibs})
+  list(APPEND sysCoreLibs ${lib}_${archSuffix})
+endforeach()
+
+# Build the core control library and link it against everything the
+# project's own sources (algorithm/common/math/sim_interface) need.
 add_library(core STATIC ${CORE_SOURCES})
-target_include_directories(core PUBLIC
-  algorithm
-  common
-  math
-  sim_interface
+target_link_libraries(core PUBLIC
+  ${sysCoreLibs} qpOASES
+  mujoco_simulate mujoco glfw3_${archSuffix}
+  Eigen3::Eigen Boost::filesystem Boost::system PkgConfig::urdfdom
+  Threads::Threads dl yaml-cpp::yaml-cpp
 )
-target_link_libraries(core PUBLIC mujoco_simulate mujoco::mujoco Threads::Threads Eigen3::Eigen jsoncpp::jsoncpp quill::quill pinocchio::pinocchio qpOASES::qpOASES)
+target_compile_definitions(core PUBLIC PINOCCHIO_STATIC)
 
-# ------------------------------------------------------------------
-# Tests code
-# ------------------------------------------------------------------
-
-
+# Demo/test executables. Each links against "core", which transitively
+# carries all of core's own dependencies.
 add_executable(float_control demo/float_control.cpp)
-target_link_libraries(float_control PRIVATE core dl)
-target_link_libraries(float_control PRIVATE pinocchio::pinocchio)
+target_link_libraries(float_control PRIVATE core)
 
 add_executable(walk_wbc demo/walk_wbc.cpp)
-target_link_libraries(walk_wbc PRIVATE core dl)
-target_link_libraries(walk_wbc PRIVATE pinocchio::pinocchio)
+target_link_libraries(walk_wbc PRIVATE core)
 
 add_executable(test_state_estimator tests/test_state_estimator.cpp)
-target_link_libraries(test_state_estimator PRIVATE core dl)
-target_link_libraries(test_state_estimator PRIVATE pinocchio::pinocchio)
+target_link_libraries(test_state_estimator PRIVATE core)
 
 add_executable(test_joystick_interpreter tests/test_joystick_interpreter.cpp)
-target_link_libraries(test_joystick_interpreter PRIVATE core dl)
+target_link_libraries(test_joystick_interpreter PRIVATE core)
 
 add_executable(test_gait_scheduler tests/test_gait_scheduler.cpp)
-target_link_libraries(test_gait_scheduler PRIVATE core dl matplotlibcpp)
+target_link_libraries(test_gait_scheduler PRIVATE core matplotlibcpp)
 
 add_executable(test_foot_placement tests/test_foot_placement.cpp)
-target_link_libraries(test_foot_placement PRIVATE core dl matplotlibcpp)
+target_link_libraries(test_foot_placement PRIVATE core matplotlibcpp)
 
 add_executable(test_robot_wrapper tests/test_robot_wrapper.cpp)
-target_link_libraries(test_robot_wrapper PRIVATE core dl matplotlibcpp)
+target_link_libraries(test_robot_wrapper PRIVATE core matplotlibcpp)
 
 add_executable(test_pin_mcf_model tests/test_pin_mcf_model.cpp)
-target_link_libraries(test_pin_mcf_model PRIVATE core dl matplotlibcpp)
+target_link_libraries(test_pin_mcf_model PRIVATE core matplotlibcpp)
+
+add_executable(test_task_priority_ik tests/test_task_priority_ik.cpp)
+target_link_libraries(test_task_priority_ik PRIVATE core matplotlibcpp)

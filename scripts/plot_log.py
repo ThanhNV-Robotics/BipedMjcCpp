@@ -20,12 +20,12 @@ Usage:
 """
 
 import argparse
-import json
 import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import yaml
 
 
 def parse_column_layout(script_path: Path) -> dict[str, tuple[int, int]]:
@@ -44,12 +44,12 @@ def parse_column_layout(script_path: Path) -> dict[str, tuple[int, int]]:
 
 
 def load_joint_names(config_path: Path) -> list[str] | None:
-    """Joint names in the same order PVT_Ctr/MJ_Interface see them: jsoncpp's
-    getMemberNames() returns object keys sorted alphabetically, not file order."""
+    """Joint names in the same order PVT_Ctr/MJ_Interface see them: both sort
+    the config file's top-level keys alphabetically rather than using file order."""
     if not config_path.exists():
         return None
     with config_path.open() as f:
-        cfg = json.load(f)
+        cfg = yaml.safe_load(f)
     return sorted(cfg.keys())
 
 
@@ -59,8 +59,8 @@ def main():
                          help="path to the .log file written by DataLogger (default: %(default)s)")
     parser.add_argument("--script", type=Path, default=None,
                          help="path to matlabReadDataScript.txt (default: alongside --log)")
-    parser.add_argument("--config", type=Path, default=Path("config/right_joint_ctrl_config.json"),
-                         help="joint-ctrl JSON used to label per-joint columns (default: %(default)s)")
+    parser.add_argument("--config", type=Path, default=Path("config/right_joint_ctrl_config.yaml"),
+                         help="joint-ctrl YAML used to label per-joint columns (default: %(default)s)")
     parser.add_argument("--out", type=Path, default=None,
                          help="save the figure to this path (e.g. record/plot.png)")
     parser.add_argument("--no-show", action="store_true",

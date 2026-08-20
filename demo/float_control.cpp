@@ -36,7 +36,7 @@ int main(int argc, const char **argv)
     std::cout << "Compile mujoco xml done\n";
 
     // ini classes
-    const std::string joint_ctrl_config_path = "config/12dof_joint_config.json";
+    const std::string joint_ctrl_config_path = "config/12dof_joint_config.yaml";
     UIctr uiController(mj_model, mj_data); // UI control for Mujoco
     MJ_Interface mj_interface(mj_model, mj_data, joint_ctrl_config_path.c_str());
     std::cout << "Init MJ_Interface done\n";

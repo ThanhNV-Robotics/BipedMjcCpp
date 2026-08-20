@@ -1,19 +1,23 @@
 #include "MJ_interface.h"
 
+#include <algorithm>
+
 // constructor
-MJ_Interface::MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char* jsonPath)
+MJ_Interface::MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char* yamlPath)
 {
     this->mj_model = mj_modelIn;
     this->mj_data = mj_dataIn;
 
-    // Read json file
-    Json::Reader reader;
-    Json::Value root_read;
-    std::ifstream in(jsonPath,std::ios::binary);
+    // Read yaml file
+    YAML::Node root_read = YAML::LoadFile(yamlPath);
 
-    reader.parse(in,root_read);
-
-    JointName = root_read.getMemberNames(); // joint names come from the config file's top-level keys
+    // joint names come from the config file's top-level keys; yaml-cpp
+    // preserves the file's own order, so sort alphabetically to match
+    // PVT_Ctr::getMotorNames() and keep it deterministic
+    for (const auto &kv : root_read) {
+        JointName.push_back(kv.first.as<std::string>());
+    }
+    std::sort(JointName.begin(), JointName.end());
     this->jointNum=JointName.size();
     this->jntId_qpos.assign(this->jointNum,0); //init jntId position, resize the vector to jointNum and set value to 0
     this->jntId_qvel.assign(this->jointNum,0);

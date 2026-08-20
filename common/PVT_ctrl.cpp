@@ -8,15 +8,19 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 
 #include "PVT_ctrl.h"
 
-PVT_Ctr::PVT_Ctr(double timeStepIn, const char *jsonPath) {
+#include <algorithm>
+
+PVT_Ctr::PVT_Ctr(double timeStepIn, const char *yamlPath) {
     // read joint pvt parameters
-    Json::Reader reader;
-    Json::Value root_read;
-    std::ifstream in(jsonPath,std::ios::binary);
+    YAML::Node root_read = YAML::LoadFile(yamlPath);
 
-    reader.parse(in,root_read);
-
-    motorName = root_read.getMemberNames(); // joint names come from the config file's top-level keys
+    // joint names come from the config file's top-level keys; yaml-cpp
+    // preserves the file's own order, so sort alphabetically to keep it
+    // deterministic and independent of how the yaml file lists joints
+    for (const auto &kv : root_read) {
+        motorName.push_back(kv.first.as<std::string>());
+    }
+    std::sort(motorName.begin(), motorName.end());
     jointNum=motorName.size();
 
     tau_out_lpf.assign(jointNum,LPF_Fst());
@@ -36,16 +40,17 @@ PVT_Ctr::PVT_Ctr(double timeStepIn, const char *jsonPath) {
     PV_enable.assign(jointNum,1);
     gear.assign(jointNum,1.0);
 
-    // update controller parameter from json file
+    // update controller parameter from yaml file
     for (int i=0;i<jointNum;i++){
-        pvt_Kp[i]=root_read[motorName[i]]["kp"].asDouble();
-        pvt_Kd[i]=root_read[motorName[i]]["kd"].asDouble();
-        maxTor[i]=root_read[motorName[i]]["maxTorque"].asDouble();
-        maxVel[i]=root_read[motorName[i]]["maxSpeed"].asDouble();
-        maxPos[i]=root_read[motorName[i]]["maxPos"].asDouble();
-        minPos[i]=root_read[motorName[i]]["minPos"].asDouble();
-        double fc=root_read[motorName[i]]["PVT_LPF_Fc"].asDouble();
-        gear[i] = root_read[motorName[i]]["gear"].asDouble();
+        const YAML::Node &jt = root_read[motorName[i]];
+        pvt_Kp[i]=jt["kp"].as<double>();
+        pvt_Kd[i]=jt["kd"].as<double>();
+        maxTor[i]=jt["maxTorque"].as<double>();
+        maxVel[i]=jt["maxSpeed"].as<double>();
+        maxPos[i]=jt["maxPos"].as<double>();
+        minPos[i]=jt["minPos"].as<double>();
+        double fc=jt["PVT_LPF_Fc"].as<double>();
+        gear[i] = jt["gear"].as<double>();
         tau_out_lpf[i].setPara(fc, timeStepIn);
         tau_out_lpf[i].ftOut(0);
 
