@@ -4,17 +4,13 @@ TaskPriorityIK::TaskPriorityIK()
 {
 
     //  WBC task defined and order build
-    ///------------ walk --------------
-    kin_tasks_walk.addTask("static_contact"); // contact feet
-    kin_tasks_walk.addTask("Base_Pose"); // base height and rpy
-    kin_tasks_walk.addTask("swing_leg"); // swing feet
+    ///------------ stand --------------
+    std::vector<std::string> taskOrder_walk = {"static_contact", "CoMXY_HipRPY", "Pz"};
 
-    std::vector<std::string> taskOrder_walk;
-
-    taskOrder_walk.emplace_back("static_contact");
-    taskOrder_walk.emplace_back("base_pose");
-    taskOrder_walk.emplace_back("swing_leg");
-
+    for (int i = 0 ; i < taskOrder_walk.size(); i++)
+    {
+        kin_tasks_walk.addTask(taskOrder_walk[i]);
+    }
     kin_tasks_walk.buildPriority(taskOrder_walk);
     
     this->kin_tasks_walk.printTaskInfo();

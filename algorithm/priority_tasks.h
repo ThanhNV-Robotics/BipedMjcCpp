@@ -15,8 +15,8 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include <iostream>
 struct Task{
     std::string taskName;
-    int id;
-    int parentId, childId;
+    int id{-1};
+    int parentId{-1}, childId{-1};
     Eigen::VectorXd dxDes,ddxDes;
     Eigen::VectorXd delta_q, dq, ddq;
     Eigen::MatrixXd J, dJ, Jpre;
@@ -33,7 +33,7 @@ public:
     std::vector<int> idList, parentIdList, childIdList;
     Eigen::VectorXd out_delta_q, out_dq, out_ddq;
     int startId;
-    void addTask(const char* name);
+    void addTask(const std::string& name);
     int getId(const std::string& name);
     int getId(const char* name);
     void buildPriority(const std::vector<std::string> &taskOrder);

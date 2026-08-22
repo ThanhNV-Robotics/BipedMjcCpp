@@ -7,7 +7,10 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 */
 #include "priority_tasks.h"
 
-void PriorityTasks::addTask(const char* name) {
+#include <cstdio>
+#include <stdexcept>
+
+void PriorityTasks::addTask(const std::string& name) {
     taskLib.emplace_back(name);
     taskLib.back().id=(int)(taskLib.size())-1;
     nameList.emplace_back(name);
@@ -37,6 +40,8 @@ void PriorityTasks::buildPriority(const std::vector<std::string> &taskOrder) {
     for (int i=0;i<taskOrder.size();i++)
     {
         int idCur= getId(taskOrder[i]);
+        if (idCur == -1)
+            throw std::runtime_error("PriorityTasks::buildPriority: task '" + taskOrder[i] + "' not found (not added via addTask?)");
         if (i==0)
             taskLib[idCur].parentId=-1;
         else
