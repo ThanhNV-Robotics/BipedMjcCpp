@@ -156,5 +156,5 @@ target_link_libraries(test_robot_wrapper PRIVATE core matplotlibcpp)
 add_executable(test_pin_mcf_model tests/test_pin_mcf_model.cpp)
 target_link_libraries(test_pin_mcf_model PRIVATE core matplotlibcpp)
 
-add_executable(test_task_priority_ik tests/test_task_priority_ik.cpp)
-target_link_libraries(test_task_priority_ik PRIVATE core matplotlibcpp)
+add_executable(test_KinWBC tests/test_KinWBC.cpp)
+target_link_libraries(test_KinWBC PRIVATE core matplotlibcpp)

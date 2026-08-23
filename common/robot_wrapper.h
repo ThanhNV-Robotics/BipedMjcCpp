@@ -44,11 +44,19 @@ class RobotWrapper {
         VectorXd q, dq, ddq;  //note for dq:  dq = [local_base_velocity_linear, local_base_velocity_angular, joint_velocities]
 
         // computed Jacobian matrix, in World frame
-        Jacobian6 J_Rfeet_W, J_Lfeet_W, J_base_W;
-        Jacobian3 Jcom_W;
+        MatrixXd J_base_W, J_Lfeet_W, J_Rfeet_W;
+        MatrixXd Jcom_W;
+
+        std::vector<const MatrixXd*> J_array;
+        std::vector<const MatrixXd*> dJ_array;
+        std::vector<const Vector3d*> pos_array;
+        std::vector<const Vector3d*> vel_array;
+
+        // Jacobian derivative dJ
+        MatrixXd dJ_Rfeet_W, dJ_Lfeet_W, dJ_base_W;
 
         // computed frame position
-        Vector3d pos_R_feet_W, pos_L_feet_W, pos_base_W; // in world frame
+        Vector3d pos_R_feet_W, pos_L_feet_W, pos_base_W, pos_CoM_W; // in world frame
         Vector3d pos_R_feet_B, pos_L_feet_B, pos_base_B; // in body base/local frame
 
         // computed frame orientation/ rotation matrices
@@ -56,6 +64,8 @@ class RobotWrapper {
         Matrix3d rot_R_feet_B, rot_L_feet_B; // in base frame
 
         // computed frame velocity
+        Vector3d vel_base_W;
+        Vector3d vel_R_feet_W, vel_L_feet_W;
         Vector3d vel_R_feet_B, vel_L_feet_B;
 
         //*********************************************** */
@@ -70,10 +80,9 @@ class RobotWrapper {
         void printModelInfo ();
 
         void printFixedBaseModelInfo ();
-        void updateFixedBaseState(RobotConfiguration rb_cf, RobotSpatialVelocity rb_v);
         
         void updateRobotState (RobotConfiguration rb_cf, RobotSpatialVelocity rb_v);
-        void computeJacobiansandPosition();
+        void computeKin ();
         void computeDyn ();
 
         //Constructor

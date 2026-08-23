@@ -36,7 +36,7 @@ int main ()
     RobotSpatialVelocity v = tester.generateRandomRobotSpatialVelocity(robot_wrapper);
 
     robot_wrapper.updateRobotState(q, v);
-    robot_wrapper.computeJacobiansandPosition();
+    robot_wrapper.computeKin();
 
     MatrixXd J_base_W;
     J_base_W = robot_wrapper.J_base_W;

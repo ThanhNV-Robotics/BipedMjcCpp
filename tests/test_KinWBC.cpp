@@ -1,5 +1,6 @@
 #pragma once
-#include "task_priority_ik.h"
+#include "KinWBC.h"
+
 #include <iostream>
 #include "gait_scheduler.h"
 #include "robot_wrapper.h"
@@ -14,7 +15,10 @@ const string FREE_JOINT_NAME = "floating_base_joint";
 int main()
 {
     RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
-    TaskPriorityIK wbc_task_ik = TaskPriorityIK();
+    
+    KinWBC kin_wbc = KinWBC();
+
+    kin_wbc.printTaskInfo();
     
     return 0;
 }

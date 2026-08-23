@@ -25,7 +25,7 @@ bool TestDyn::testPinMjcJacobians (const std::string link_name)
         // Update robot wrapper state
         this->robot_wrapper_.updateRobotState(q, v);
         // Compute jacobians
-        robot_wrapper_.computeJacobiansandPosition();
+        robot_wrapper_.computeKin();
         Jacobian6 Jac;
         if (link_name == "left_ankle_pitch_link")
         {
@@ -70,7 +70,7 @@ bool TestDyn::testPinMjcPosition(const std::string link_name)
         // Update robot wrapper state
         this->robot_wrapper_.updateRobotState(q, v);
         // Compute jacobians
-        robot_wrapper_.computeJacobiansandPosition();
+        robot_wrapper_.computeKin();
 
         Vector3d pos_feet_W;
         if (link_name == "left_ankle_pitch_link")
@@ -111,7 +111,7 @@ bool TestDyn::testPinMjcOrientation (const std::string link_name)
         // Update robot wrapper state
         this->robot_wrapper_.updateRobotState(q, v);
         // Compute jacobians
-        robot_wrapper_.computeJacobiansandPosition();
+        robot_wrapper_.computeKin();
         
         Matrix3d rot_feet_W;
         if (link_name == "left_ankle_pitch_link")

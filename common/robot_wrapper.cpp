@@ -1,5 +1,6 @@
 #include "robot_wrapper.h"
 #include "data_type.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/multibody/fwd.hpp>
@@ -85,7 +86,11 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     J_base_W.block<3, 3>(0, 0) = MatrixXd::Identity(3,3);
     J_base_W.block<3, 3>(3, 3) = MatrixXd::Identity(3,3);
 
+    dJ_base_W = Jacobian6::Zero(6, model_nv_); // fixed as J_base_W = const 
+
     Jcom_W    = Jacobian3::Zero(3, model_nv_);
+
+
 
     pos_R_feet_W = Vector3d::Zero();
     pos_L_feet_W = Vector3d::Zero();
@@ -93,14 +98,25 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     pos_R_feet_B = Vector3d::Zero();
     pos_L_feet_B = Vector3d::Zero();
     pos_base_B   = Vector3d::Zero();
+    pos_CoM_W    = Vector3d::Zero();
+    vel_base_W   = Vector3d::Zero();
 
     rot_R_feet_W = Matrix3d::Identity();
     rot_L_feet_W = Matrix3d::Identity();
     rot_R_feet_B = Matrix3d::Identity();
     rot_L_feet_B = Matrix3d::Identity();
 
+    vel_R_feet_W = Vector3d::Zero();
+    vel_L_feet_W = Vector3d::Zero();
     vel_R_feet_B = Vector3d::Zero();
     vel_L_feet_B = Vector3d::Zero();
+
+    J_array = { &J_base_W, &J_Lfeet_W, &J_Rfeet_W, &Jcom_W }; //index 0,1,2,3    
+    dJ_array = { &dJ_base_W, &dJ_Lfeet_W, &dJ_Rfeet_W };
+    pos_array = {&pos_base_W, &pos_L_feet_W, &pos_R_feet_W, &pos_CoM_W};
+    vel_array = {&vel_base_W, &vel_L_feet_W, &vel_R_feet_W};
+
+
 
     // assign left and right leg joint index
     for (pin::JointIndex j_index = 0; j_index < this->model_njoint_; ++j_index)
@@ -209,18 +225,30 @@ void RobotWrapper::computeDyn()
     dyn_Non = Mpj_inv * dyn_Non;
 }
 
-void RobotWrapper::computeJacobiansandPosition() // Compute J_lf(q)
+void RobotWrapper::computeKin() // Compute J_lf(q)
 {
     /**
-    * @brief compute all the Jacobians and positions
+    * @brief compute all the Jacobians, Jacobian derivative and positions
     */
     pin::forwardKinematics(pin_model_, pin_data_, q);
+    pin::jacobianCenterOfMass(pin_model_, pin_data_, q, true);
     pin::computeJointJacobians(pin_model_, pin_data_, q);
+    pinocchio::computeJointJacobiansTimeVariation(pin_model_, pin_data_, q, dq);
 
     pin::getJointJacobian(pin_model_,pin_data_ , left_leg_joint_ids_.back() , pinocchio::LOCAL_WORLD_ALIGNED , J_Lfeet_W);
     pin::getJointJacobian(pin_model_,pin_data_ , right_leg_joint_ids_.back() , pinocchio::LOCAL_WORLD_ALIGNED , J_Rfeet_W);
-
     Jcom_W = pin_data_.Jcom;
+
+    // Foot spatial velocity in world-aligned axes. J_*feet_W is still in
+    // LOCAL_WORLD_ALIGNED convention here (not yet reparametrized by Mpj below),
+    // so it multiplies directly against the true pinocchio velocity dq.
+    vel_L_feet_W = (J_Lfeet_W * dq).head<3>();
+    vel_R_feet_W = (J_Rfeet_W * dq).head<3>();
+
+    // Jacobian derivative
+    pin::getJointJacobianTimeVariation(pin_model_, pin_data_, left_leg_joint_ids_.back(), pin::LOCAL_WORLD_ALIGNED, dJ_Lfeet_W);
+    pin::getJointJacobianTimeVariation(pin_model_, pin_data_, right_leg_joint_ids_.back(), pin::LOCAL_WORLD_ALIGNED, dJ_Rfeet_W);
+
 
     // Transform Jacobians to accept input dq with base velocity in WORLD frame
     Matrix3d base_rot = pin_data_.oMi[1].rotation();
@@ -231,6 +259,8 @@ void RobotWrapper::computeJacobiansandPosition() // Compute J_lf(q)
     J_Lfeet_W = J_Lfeet_W * Mpj;
     J_Rfeet_W = J_Rfeet_W * Mpj;
     Jcom_W    = Jcom_W    * Mpj;
+    dJ_Lfeet_W = dJ_Lfeet_W* Mpj;
+    dJ_Rfeet_W = dJ_Rfeet_W* Mpj;
 
 
     // Frame position in World Frame
@@ -242,14 +272,23 @@ void RobotWrapper::computeJacobiansandPosition() // Compute J_lf(q)
     rot_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].rotation();
     rot_R_feet_W = pin_data_.oMi[right_leg_joint_ids_.back()].rotation();
 
-    // Frame position and rotation in LOCAL BASE frame
+    // compute foot position and velocity w.r.t local base frame
     // forward kinematics for fixed base model
     VectorXd qj_fixedbase = this->q.segment(7, this->model_na_); //extract the actuated joint position only
-    pin::forwardKinematics(model_fixedbase_, data_fixedbase_, qj_fixedbase);
+    VectorXd dqj_fixedbase = this->dq.segment(6, this->model_na_); // extract the actuated joint velocity only
+    pin::forwardKinematics(model_fixedbase_, data_fixedbase_, qj_fixedbase, dqj_fixedbase);
+
     pos_L_feet_B = data_fixedbase_.oMi[left_leg_joint_ids_.back() - 1].translation();
     pos_R_feet_B = data_fixedbase_.oMi[right_leg_joint_ids_.back() - 1].translation();
     rot_L_feet_B = data_fixedbase_.oMi[left_leg_joint_ids_.back() - 1].rotation();
     rot_R_feet_B = data_fixedbase_.oMi[right_leg_joint_ids_.back() - 1].rotation();
+
+    // fixed-base model's frame 0 is the base link itself, so LOCAL_WORLD_ALIGNED
+    // here already means "aligned with the local base frame"
+    vel_L_feet_B = pin::getVelocity(model_fixedbase_, data_fixedbase_,
+                                     left_leg_joint_ids_.back() - 1, pin::LOCAL_WORLD_ALIGNED).linear();
+    vel_R_feet_B = pin::getVelocity(model_fixedbase_, data_fixedbase_,
+                                     right_leg_joint_ids_.back() - 1, pin::LOCAL_WORLD_ALIGNED).linear();
 }
 
 void RobotWrapper::printModelInfo()
