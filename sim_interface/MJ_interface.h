@@ -8,6 +8,9 @@
 #include <iostream>
 
 #include "data_bus.h"
+#include "data_type.h"
+
+
 // This class use to read robot states (sensors, motor states) or write control force from/to mujoco simulator
 
 class MJ_Interface
@@ -44,9 +47,13 @@ public:
 
     MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char *yamlPath); // constructor
     void updateSensorValues(); // get motor joint states 
+
+    void updateSensorValues(RobotSensor &robot_sensor);
+
     void setMotorsTorque(std::vector<double> &tauIn); // set joint torque
     void printInfo ();
     void printJointPos ();
+
 
     std::vector<double> getJointPos ();
     std::vector<double> getJointVel ();

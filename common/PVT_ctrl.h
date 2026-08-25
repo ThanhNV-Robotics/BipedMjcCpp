@@ -18,6 +18,9 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include <vector>
 #include <cmath>
 #include "data_bus.h"
+#include "data_type.h"
+#include "robot_wrapper.h"
+
 // PVT: Position Velocity Torque (control)
 // This class is for joint low-level 
 class PVT_Ctr {
@@ -31,6 +34,7 @@ public:
     PVT_Ctr(double timeStepIn, const char * yamlPath);
     void calMotorsPVT();
     void calMotorsPVT(double deltaP_Lim);
+    void calMotorsPVT (VectorXd ref_pos, VectorXd ref_vel, VectorXd tau_ff);
     void enablePV(); // enable PV control item
     void disablePV(); // disable PV control item
     void enablePV(int jtId); // enable PV control item
@@ -38,6 +42,8 @@ public:
     void setJointPD(double kp, double kd, const char * jointName);
     void dataBusRead(DataBus &busIn);
     void dataBusWrite(DataBus &busIn);
+
+    void getFeedbackMotorState (RobotWrapper &robot_wrapper);
 
     void printPVTinfo();
     void printTorqueOut();

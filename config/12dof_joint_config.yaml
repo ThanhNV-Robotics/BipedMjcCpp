@@ -1,57 +1,11 @@
-right_hip_pitch_joint:
-  PVT_LPF_Fc: 20
-  kd: 1.5
-  kp: 200.0
-  maxPos: 1.04720
-  maxSpeed: 100.0
-  maxTorque: 48.0
-  minPos: -1.04720
-  gear: 1
-right_hip_roll_joint:
-  PVT_LPF_Fc: 20
-  kd: 1.5
-  kp: 200.0
-  maxPos: 0.61087
-  maxSpeed: 100
-  maxTorque: 48.0
-  minPos: -1.04720
-  gear: 1
-right_hip_yaw_joint:
-  PVT_LPF_Fc: 50
-  kd: 1.5
-  kp: 100.0
-  maxPos: 0.78540
-  maxSpeed: 20.94
-  maxTorque: 18.0
-  minPos: -0.78540
-  gear: 1
-right_knee_pitch_joint:
-  PVT_LPF_Fc: 50
-  kd: 1.5
-  kp: 300.0
-  maxPos: 2.09440
-  maxSpeed: 100
-  maxTorque: 48.0
-  minPos: -0.17453
-  gear: 1
-right_ankle_roll_joint:
-  PVT_LPF_Fc: 50
-  kd: 0.5
-  kp: 50.0
-  maxPos: 0.26180
-  maxSpeed: 19.16
-  maxTorque: 30.0
-  minPos: -0.26180
-  gear: 1
-right_ankle_pitch_joint:
-  PVT_LPF_Fc: 50
-  kd: 0.75
-  kp: 80.0
-  maxPos: 0.52360
-  maxSpeed: 19.16
-  maxTorque: 30.0
-  minPos: -0.52360
-  gear: 1
+# NOTE: this file's top-level joint key order is load-bearing -- MJ_Interface
+# and PVT_Ctr both read it via yaml-cpp (which preserves file order) WITHOUT
+# re-sorting, and that becomes each class's canonical joint index order. It
+# must exactly match the joint declaration order in
+# models/urdf/biped_robot_12dof.urdf, which RobotWrapper/Pinocchio uses as
+# its own joint order -- otherwise joint index i here will not refer to the
+# same physical joint as index i in RobotWrapper's q/dq. If you add/reorder
+# joints here, reorder them identically in the URDF (or vice versa).
 left_hip_pitch_joint:
   PVT_LPF_Fc: 20
   kd: 1.5
@@ -98,6 +52,60 @@ left_ankle_roll_joint:
   minPos: -0.26180
   gear: 1
 left_ankle_pitch_joint:
+  PVT_LPF_Fc: 50
+  kd: 0.75
+  kp: 80.0
+  maxPos: 0.52360
+  maxSpeed: 19.16
+  maxTorque: 30.0
+  minPos: -0.52360
+  gear: 1
+right_hip_pitch_joint:
+  PVT_LPF_Fc: 20
+  kd: 1.5
+  kp: 200.0
+  maxPos: 1.04720
+  maxSpeed: 100.0
+  maxTorque: 48.0
+  minPos: -1.04720
+  gear: 1
+right_hip_roll_joint:
+  PVT_LPF_Fc: 20
+  kd: 1.5
+  kp: 200.0
+  maxPos: 0.61087
+  maxSpeed: 100
+  maxTorque: 48.0
+  minPos: -1.04720
+  gear: 1
+right_hip_yaw_joint:
+  PVT_LPF_Fc: 50
+  kd: 1.5
+  kp: 100.0
+  maxPos: 0.78540
+  maxSpeed: 20.94
+  maxTorque: 18.0
+  minPos: -0.78540
+  gear: 1
+right_knee_pitch_joint:
+  PVT_LPF_Fc: 50
+  kd: 1.5
+  kp: 300.0
+  maxPos: 2.09440
+  maxSpeed: 100
+  maxTorque: 48.0
+  minPos: -0.17453
+  gear: 1
+right_ankle_roll_joint:
+  PVT_LPF_Fc: 50
+  kd: 0.5
+  kp: 50.0
+  maxPos: 0.26180
+  maxSpeed: 19.16
+  maxTorque: 30.0
+  minPos: -0.26180
+  gear: 1
+right_ankle_pitch_joint:
   PVT_LPF_Fc: 50
   kd: 0.75
   kp: 80.0

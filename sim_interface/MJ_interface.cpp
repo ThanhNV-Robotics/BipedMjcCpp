@@ -1,7 +1,5 @@
 #include "MJ_interface.h"
 
-#include <algorithm>
-
 // constructor
 MJ_Interface::MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char* yamlPath)
 {
@@ -11,13 +9,13 @@ MJ_Interface::MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char* y
     // Read yaml file
     YAML::Node root_read = YAML::LoadFile(yamlPath);
 
-    // joint names come from the config file's top-level keys; yaml-cpp
-    // preserves the file's own order, so sort alphabetically to match
-    // PVT_Ctr::getMotorNames() and keep it deterministic
+    // joint names come from the config file's top-level keys, in file order
+    // (yaml-cpp preserves it) -- matches PVT_Ctr::motorName's order for the
+    // same reason (see the note at the top of the yaml file: this order must
+    // match the URDF's joint declaration order / RobotWrapper's Pinocchio order)
     for (const auto &kv : root_read) {
         JointName.push_back(kv.first.as<std::string>());
     }
-    std::sort(JointName.begin(), JointName.end());
     this->jointNum=JointName.size();
     this->jntId_qpos.assign(this->jointNum,0); //init jntId position, resize the vector to jointNum and set value to 0
     this->jntId_qvel.assign(this->jointNum,0);
@@ -71,6 +69,40 @@ MJ_Interface::MJ_Interface(mjModel *mj_modelIn, mjData *mj_dataIn, const char* y
     accSensorId = mj_name2id(mj_model, mjOBJ_SENSOR, accSensorName.c_str());
     touchSensorId_L = mj_name2id(mj_model, mjOBJ_SENSOR, touchSensorName_L.c_str());
     touchSensorId_R = mj_name2id(mj_model, mjOBJ_SENSOR, touchSensorName_R.c_str());
+}
+
+void MJ_Interface::updateSensorValues(RobotSensor &robot_sensor)
+{
+    // (re)size actuator_state to this robot's joint count if it doesn't match yet
+    if (robot_sensor.actuator_state.robot_na != jointNum)
+        robot_sensor.actuator_state = ActuatorState(jointNum);
+
+    // joint position, velocity, torque
+    for (int i = 0; i < jointNum; i++)
+    {
+        robot_sensor.actuator_state.qj(i) = mj_data->qpos[jntId_qpos[i]];
+        robot_sensor.actuator_state.dqj(i) = mj_data->qvel[jntId_qvel[i]];
+        robot_sensor.actuator_state.torquej(i) = mj_data->qfrc_actuator[jntId_qvel[i]];
+    }
+
+    // IMU linear acceleration and angular velocity, in local IMU frame
+    for (int i = 0; i < 3; i++)
+    {
+        robot_sensor.imu_sensor.imu_accel_L(i) = mj_data->sensordata[mj_model->sensor_adr[accSensorId] + i];
+        robot_sensor.imu_sensor.imu_gyro_L(i) = mj_data->sensordata[mj_model->sensor_adr[gyroSensorId] + i];
+    }
+
+    // IMU orientation quaternion; mujoco sensordata order is [w,x,y,z]
+    const double *quatAdr = &mj_data->sensordata[mj_model->sensor_adr[orientataionSensorId]];
+    robot_sensor.imu_sensor.imu_quat_ = Quat(quatAdr[0], quatAdr[1], quatAdr[2], quatAdr[3]);
+
+    // update touch sensor value
+    robot_sensor.left_touch_sensor = mj_data->sensordata[mj_model->sensor_adr[touchSensorId_L]];
+    robot_sensor.right_touch_sensor = mj_data->sensordata[mj_model->sensor_adr[touchSensorId_R]];
+
+    // compute
+
+    return;
 }
 
 void MJ_Interface::updateSensorValues()

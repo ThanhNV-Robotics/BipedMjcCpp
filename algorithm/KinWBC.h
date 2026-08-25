@@ -10,19 +10,25 @@
 
 #include "robot_wrapper.h"
 
+
+#include "joystick_interpreter.h" // for base reference motion
+#include "foot_placement.h" // for foot reference motion
+
 struct Task {
 
     std::string taskName;
 
     int ee_index; // end-effector index to access Jacobian, position, velocity from robotwrapper
     
-    VectorXd dxDes, ddxDes; //task space desired velocity and acceleration 
+    VectorXd X_cur, dX_cur; // feedback in task space
+    VectorXd deltaX_des, X_des, dX_des, ddX_des; //task space desired velocity and acceleration 
+    VectorXd errX, derrX;
+
     VectorXd delta_q, dq, ddq; //joint space velocity and acceleration 
     MatrixXd J, dJ, Jpre; // Jacobian, Jacobian derivative,...
     MatrixXd N; // Null space projection matrix of J
     MatrixXd kp, kd; // pd gain in task space
     Eigen::DiagonalMatrix<double, -1> W; //weighted matrix for pseudo inverse
-    VectorXd errX, derrX; // task space error and derivative
 
     Task(std::string name, int eeId) {taskName = name; ee_index = eeId;}; // constructor
 };
@@ -31,10 +37,20 @@ class KinWBC {
 public:
     // Constructor
     KinWBC ();
+    // construct stand and walk task
+    Task task_left_contact  = Task("left_contact", 1); // input 1 to access to left_feet (jacobian, position, vel)
+    Task task_right_contact  = Task("right_contact", 2); // input 2 to access to right_feet (jacobian, position, vel)
+
+    Task task_CoMXY = Task("CoMXY", 3);  // input 3 to access to Jcom_W in robot_wrapper
+    Task task_base_height = Task("base_height", 0); // input 0 to access to base end-effector
     std::vector<Task> kin_task_stand;
     // std::vector<Task> kin_task_walk;
     Eigen::VectorXd out_delta_q, out_dq, out_ddq;
 
+    const double dt = 0.001; // sampling time
+
     void printTaskInfo();
-    void computeWBC_IK (const RobotWrapper& robot_wrapper);
+    void updateReference(const JoyStickInterpreter& joyStick, FootPlacement& footPlanner); // get referece from task planner
+    void updateCurrent (const RobotWrapper& rb_wrapper); // update current task space estimation
+    void computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper);
 };

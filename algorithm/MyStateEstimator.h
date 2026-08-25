@@ -6,13 +6,20 @@
 #include <vector>
 
 #include "data_bus.h"
+#include "data_type.h"
+#include "robot_wrapper.h"
 
 class StateEstimator {
 public:
   StateEstimator(double dt, bool verbose); // Constructor, input: sampling time dt
 
   void getSensorMeansurement(DataBus &Data); // get sensor measurement from mujoco simulator
-  void update(DataBus &Data);
+  // robot_wrapper is used to compute foot position/velocity in the base
+  // frame via forward kinematics, since RobotSensor only carries raw
+  // actuator/IMU sensor data (unlike DataBus, which already has fe_l/r_pos/vel_L precomputed)
+  void getSensorMeansurement(const RobotSensor &rb_sensor, RobotWrapper &robot_wrapper);
+
+  void update(const RobotSensor &rb_sensor, RobotWrapper &rb_wrapper);
 
   Eigen::Matrix<double, 2, 1> getTouchSensorValue(); // [lf-touch, rf-touch]
 

@@ -11,6 +11,7 @@ using Vector2d  = Eigen::Vector2d;
 using Vector3d  = Eigen::Vector3d;
 using Vector4d  = Eigen::Vector4d;
 using Vector6d  = Eigen::Matrix<double, 6, 1>;
+using Vector12d = Eigen::Matrix<double, 12, 1>;
 // Matrix types
 using MatrixXd  = Eigen::MatrixXd;
 using Matrix2d  = Eigen::Matrix2d;
@@ -27,7 +28,7 @@ using Jacobian6 = Eigen::Matrix<double, 6, Eigen::Dynamic>; // 6 x nv
 using Jacobian3 = Eigen::Matrix<double, 3, Eigen::Dynamic>; // 3 x nv, mostly used for CoM Jacobian
 using JacobianX = Eigen::MatrixXd;                          // general dynamic Jacobian
 
-struct ActuatedJointState
+struct ActuatorState
 {
     int robot_na{0}; // number of actuated joint
 
@@ -36,7 +37,7 @@ struct ActuatedJointState
     VectorXd torquej; // joint torque 
 
     // constructor
-    ActuatedJointState (int naIn = 0) : robot_na(naIn)
+    ActuatorState (int naIn = 0) : robot_na(naIn)
     {
         // init member variables
         qj = VectorXd::Zero(robot_na);
@@ -50,6 +51,19 @@ struct IMUSensor
     Vector3d imu_accel_L = Vector3d::Zero(); // imu acceleration, in local imu frame
     Vector3d imu_gyro_L = Vector3d::Zero(); // imu angular velocity/ gyroscope in local frame
     Quat  imu_quat_ = Quat::Identity(); // imu quaternion
+};
+
+struct RobotSensor
+{
+    ActuatorState actuator_state;
+    IMUSensor imu_sensor;
+
+    double left_touch_sensor;
+    double right_touch_sensor;
+
+    RobotSensor (int naIn = 0) : actuator_state(naIn)
+    {
+    }
 };
 
 struct RobotConfiguration

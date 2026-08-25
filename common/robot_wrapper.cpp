@@ -244,6 +244,7 @@ void RobotWrapper::computeKin() // Compute J_lf(q)
     // so it multiplies directly against the true pinocchio velocity dq.
     vel_L_feet_W = (J_Lfeet_W * dq).head<3>();
     vel_R_feet_W = (J_Rfeet_W * dq).head<3>();
+    vel_CoM_W = Jcom_W * dq;
 
     // Jacobian derivative
     pin::getJointJacobianTimeVariation(pin_model_, pin_data_, left_leg_joint_ids_.back(), pin::LOCAL_WORLD_ALIGNED, dJ_Lfeet_W);
@@ -289,6 +290,35 @@ void RobotWrapper::computeKin() // Compute J_lf(q)
                                      left_leg_joint_ids_.back() - 1, pin::LOCAL_WORLD_ALIGNED).linear();
     vel_R_feet_B = pin::getVelocity(model_fixedbase_, data_fixedbase_,
                                      right_leg_joint_ids_.back() - 1, pin::LOCAL_WORLD_ALIGNED).linear();
+}
+
+Vector12d RobotWrapper::computeFootInBase (ActuatorState actuator_state)
+{
+    /**
+    * @brief forward kinematics on the fixed-base model to get each foot's
+    * position AND velocity w.r.t. the base frame, straight from a raw
+    * ActuatorState. Output layout: [left_pos(3), right_pos(3), left_vel(3),
+    * right_vel(3)].
+    * Reuses the shared data_fixedbase_ cache (also written by computeKin()
+    * from this->q) -- calling this overwrites data_fixedbase_ with the FK
+    * results for actuator_state.qj/dqj instead, and isn't safe to call
+    * concurrently with computeKin() from another thread.
+    */
+    pin::forwardKinematics(model_fixedbase_, data_fixedbase_, actuator_state.qj, actuator_state.dqj);
+
+    Vector3d left_foot_pos_B = data_fixedbase_.oMi[left_leg_joint_ids_.back() - 1].translation();
+    Vector3d right_foot_pos_B = data_fixedbase_.oMi[right_leg_joint_ids_.back() - 1].translation();
+
+    // fixed-base model's frame 0 is the base link itself, so LOCAL_WORLD_ALIGNED
+    // here already means "aligned with the local base frame" (same as computeKin())
+    Vector3d left_foot_vel_B = pin::getVelocity(model_fixedbase_, data_fixedbase_,
+                                                 left_leg_joint_ids_.back() - 1, pin::LOCAL_WORLD_ALIGNED).linear();
+    Vector3d right_foot_vel_B = pin::getVelocity(model_fixedbase_, data_fixedbase_,
+                                                  right_leg_joint_ids_.back() - 1, pin::LOCAL_WORLD_ALIGNED).linear();
+
+    Vector12d feet_pos_vel_B;
+    feet_pos_vel_B << left_foot_pos_B, right_foot_pos_B, left_foot_vel_B, right_foot_vel_B;
+    return feet_pos_vel_B;
 }
 
 void RobotWrapper::printModelInfo()
@@ -367,4 +397,124 @@ void RobotWrapper::printFixedBaseModelInfo ()
                   << " | Parent: " << model_fixedbase_.parents[joint_id]
                   << '\n';
     }
+}
+
+RobotWrapper::IkRes RobotWrapper::computeInK_Leg(const Eigen::Matrix3d &Rdes_L, 
+                                    const Eigen::Vector3d &Pdes_L,
+                                     const Eigen::Matrix3d &Rdes_R,
+                                      const Eigen::Vector3d &Pdes_R)
+{
+const pinocchio::SE3 oMdesL(Rdes_L, Pdes_L);
+    const pinocchio::SE3 oMdesR(Rdes_R, Pdes_R);
+    // This model is legs-only (12 DOF: left leg 0-5, right leg 6-11).
+    Eigen::VectorXd qIk = Eigen::VectorXd::Zero(model_fixedbase_.nv); // initial guess
+    // Eigen::VectorXd pertInitial = Eigen::VectorXd::Constant(model_biped_fixed.nv, 0.05);
+    // qIk += pertInitial;
+    qIk[3] = 0.1; // left knee
+    qIk[9] = 0.1; // right knee
+
+    qIk[0] = -0.08; // left hip pitch
+    qIk[6] = -0.08; // right hip pitch
+
+    qIk[5] = -0.05; // left hip roll
+    qIk[11] = -0.08; // right hip roll
+
+    const double eps = 1e-4;
+    const int IT_MAX = 100;
+    const double DT = 7e-1;
+    const double damp = 5e-3;
+    Eigen::MatrixXd JL(6, model_fixedbase_.nv);
+    Eigen::MatrixXd JR(6, model_fixedbase_.nv);
+    Eigen::MatrixXd JCompact(12, model_fixedbase_.nv);
+    JL.setZero();
+    JR.setZero();
+    JCompact.setZero();
+
+    bool success = false;
+    Eigen::Matrix<double, 6, 1> errL, errR;
+    Eigen::Matrix<double, 12, 1> errCompact;
+    Eigen::VectorXd v(model_fixedbase_.nv);
+
+    pinocchio::JointIndex J_Idx_l, J_Idx_r;
+    J_Idx_l = left_leg_joint_ids_.back() - 1;
+    J_Idx_r = right_leg_joint_ids_.back() - 1;
+    int itr_count{0};
+    for (itr_count = 0;; itr_count++)
+    {
+        pinocchio::forwardKinematics(model_fixedbase_, data_fixedbase_, qIk);
+        const pinocchio::SE3 iMdL = data_fixedbase_.oMi[J_Idx_l].actInv(oMdesL);
+        const pinocchio::SE3 iMdR = data_fixedbase_.oMi[J_Idx_r].actInv(oMdesR);
+        errL = pinocchio::log6(iMdL).toVector(); // in joint frame
+        errR = pinocchio::log6(iMdR).toVector(); // in joint frame
+        errCompact.block<6, 1>(0, 0) = errL;
+        errCompact.block<6, 1>(6, 0) = errR;
+        if (errCompact.norm() < eps)
+        {
+            success = true;
+            
+            break;
+        }
+        if (itr_count >= IT_MAX)
+        {
+            success = false;
+            break;
+        }
+
+        pinocchio::computeJointJacobian(model_fixedbase_, data_fixedbase_, qIk, J_Idx_l, JL); // JL in joint frame
+        pinocchio::computeJointJacobian(model_fixedbase_, data_fixedbase_, qIk, J_Idx_r, JR); // JR in joint frame
+        Eigen::MatrixXd W;
+        W = Eigen::MatrixXd::Identity(model_fixedbase_.nv, model_fixedbase_.nv); // weighted matrix
+        // (OpenLoong's full-humanoid version zeroes out a waist-joint block here
+        // to discourage the IK solver from using it; this model is legs-only,
+        // there's no waist DOF to discourage.)
+        pinocchio::Data::Matrix6 JlogL;
+        pinocchio::Data::Matrix6 JlogR;
+        pinocchio::Jlog6(iMdL.inverse(), JlogL);
+        pinocchio::Jlog6(iMdR.inverse(), JlogR);
+        JL = -JlogL * JL;
+        JR = -JlogR * JR;
+        JCompact.block(0, 0, 6, model_fixedbase_.nv) = JL;
+        JCompact.block(6, 0, 6, model_fixedbase_.nv) = JR;
+        // pinocchio::Data::Matrix6 JJt;
+        Eigen::Matrix<double, 12, 12> JJt;
+        JJt.noalias() = JCompact * W * JCompact.transpose();
+        JJt.diagonal().array() += damp;
+        v.noalias() = -W * JCompact.transpose() * JJt.ldlt().solve(errCompact);
+        qIk = pinocchio::integrate(model_fixedbase_, qIk, v * DT);
+    }
+
+    IkRes res;
+    res.err = errCompact;
+    res.itr = itr_count;
+
+    if (success)
+    {
+        res.status = 0;
+    }
+    else
+    {
+        res.status = -1;
+    }
+    res.jointPosRes = qIk;
+    return res;   
+}
+
+VectorXd RobotWrapper::computeInitial_Stand(const double base_height)
+{
+    const double foot_height = 0.07; // distance between the foot ankel joint and the bottom
+    const double  xv_des = 0.7;  // desired velocity in x direction
+
+    const double width_hips = 0.334;
+
+    Vector3d fe_l_pos_L_des = {0.0, width_hips / 2, -base_height};  // desired left feet pos
+    Vector3d fe_r_pos_L_des = {0.0, -width_hips / 2, -base_height}; // desired right feet pos
+
+    Vector3d fe_l_eul_L_des = {0.0, 0.0, 0.0};
+    Vector3d fe_r_eul_L_des = {0.0, 0.0, 0.0};
+    Matrix3d fe_l_rot_des = eul2Rot(fe_l_eul_L_des(0), fe_l_eul_L_des(1), fe_l_eul_L_des(2));
+    Matrix3d fe_r_rot_des = eul2Rot(fe_r_eul_L_des(0), fe_r_eul_L_des(1), fe_r_eul_L_des(2));
+    
+    auto resLeg = this->computeInK_Leg(fe_l_rot_des, fe_l_pos_L_des, fe_r_rot_des, fe_r_pos_L_des);
+
+    return resLeg.jointPosRes;
 }

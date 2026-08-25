@@ -1,4 +1,6 @@
 #include "MyStateEstimator.h"
+#include "data_type.h"
+#include "robot_wrapper.h"
 
 // constructor
 StateEstimator::StateEstimator( double dt, bool verbose) // verbose is option to print out filter param or note
@@ -123,7 +125,10 @@ double StateEstimator::contactConfidence(double touchValue) const {
   return 1.0 / (1.0 + std::exp(-(touchValue - contactForceThreshold_) / contactTransitionWidth_));
 }
 
-void StateEstimator::update(DataBus &Data) {
+void StateEstimator::update(const RobotSensor &rb_sensor, RobotWrapper &rb_wrapper) {
+
+  getSensorMeansurement(rb_sensor, rb_wrapper);
+
   // smooth contact confidence in [0,1] instead of a hard threshold, so Q_/R_
   // scaling ramps continuously through touchdown/liftoff rather than jumping
   double contactConf[2] = {contactConfidence(this->touch_lf), contactConfidence(this->touch_rf)};
@@ -131,13 +136,9 @@ void StateEstimator::update(DataBus &Data) {
   this->contact_flag[0] = contactConf[0] > 0.5;
   this->contact_flag[1] = contactConf[1] > 0.5;
 
-  // footEndPos_/footEndVel_ are expressed in the body frame (see DataBus'
-  // fe_l_pos_L/fe_l_vel_L docs), but the KF state and A_/B_ propagate
-  // base/foot positions in the world frame, so they must be rotated into
-  // world frame before being used as measurements -- otherwise any yaw
-  // mixes body-frame x/y into the wrong world axis and the estimate drifts
-  // laterally as the robot turns while walking forward.
-  Eigen::Matrix3d R_wb = Data.eul2Rot(Data.rpy[0], Data.rpy[1], Data.rpy[2]);
+  Eigen::Quaterniond imu_quat(this->imu_quaternion_(3), this->imu_quaternion_(0),
+                              this->imu_quaternion_(1), this->imu_quaternion_(2)); // (w,x,y,z)
+  Eigen::Matrix3d R_wb = imu_quat.toRotationMatrix();
 
   // process the contact flag
   for (int i = 0; i < this->numContact_; i++) {
@@ -227,6 +228,28 @@ void StateEstimator::update(DataBus &Data) {
   this->P_ = (I - K * this->C_) * this->P_; // jose's covariance update
   // force to symmetry
   this->P_ = 0.5 * (this->P_ + this->P_.transpose());
+
+  // -----------------------------------------------
+  // Propagate estimated state to outputs
+  //------------------------------------------------
+
+  RobotConfiguration Out_rb_cf_est;
+  RobotSpatialVelocity Out_rb_vel_est;
+
+  Out_rb_cf_est.robot_na = 12;
+  Out_rb_cf_est.pos_b_W = this->xhat_.segment(0, 3); // KF-estimated base position (world frame)
+  Out_rb_cf_est.quat_b_W = imu_quat; // orientation isn't part of the KF state, comes straight from the IMU
+  Out_rb_cf_est.qj = this->motor_pos_mea_; // joint position is measured directly, not filtered
+
+  Out_rb_vel_est.robot_nv = 12;
+  Out_rb_vel_est.vb_W = this->xhat_.segment(3, 3); // KF-estimated base linear velocity (world frame)
+  Out_rb_vel_est.wb_W = R_wb * this->imu_angular_vel_mea_; // gyro reading rotated local->world, to match vb_W's frame
+  Out_rb_vel_est.dq_j = this->motor_vel_mea_; // joint velocity is measured directly, not filtered
+
+  // update robot wrapper internal states from the estimated states
+
+  rb_wrapper.updateRobotState(Out_rb_cf_est, Out_rb_vel_est);
+
 }
 
 void StateEstimator::getSensorMeansurement(DataBus &Data) {
@@ -255,6 +278,30 @@ void StateEstimator::getSensorMeansurement(DataBus &Data) {
 
   this->touch_lf = Data.touch_lf; // get touch sensor meansurement
   this->touch_rf = Data.touch_rf;
+}
+
+void StateEstimator::getSensorMeansurement(const RobotSensor &rb_sensor, RobotWrapper &robot_wrapper) {
+  // assign from RobotSensor (mirrors the DataBus overload above, minus the
+  // touch sensor and foot FK-derived measurements RobotSensor doesn't carry)
+  this->motor_pos_mea_ = rb_sensor.actuator_state.qj;
+  this->motor_vel_mea_ = rb_sensor.actuator_state.dqj;
+  this->motor_tor_mea_ = rb_sensor.actuator_state.torquej;
+
+  this->imu_acceleration_mea_ = rb_sensor.imu_sensor.imu_accel_L;
+  this->imu_angular_vel_mea_ = rb_sensor.imu_sensor.imu_gyro_L;
+
+  // pinocchio-style (x,y,z,w), same convention as the DataBus overload
+  const auto &q = rb_sensor.imu_sensor.imu_quat_;
+  this->imu_quaternion_ << q.x(), q.y(), q.z(), q.w();
+
+  // compute foot position and velocity in base frame
+  // layout: [left_pos(3), right_pos(3), left_vel(3), right_vel(3)]
+  Vector12d feet_pos_vel_B = robot_wrapper.computeFootInBase(rb_sensor.actuator_state);
+  this->footEndPos_ << feet_pos_vel_B.segment<3>(0), feet_pos_vel_B.segment<3>(3);
+  this->footEndVel_ << feet_pos_vel_B.segment<3>(6), feet_pos_vel_B.segment<3>(9);
+
+  this->touch_lf = rb_sensor.left_touch_sensor;
+  this->touch_rf = rb_sensor.right_touch_sensor;
 }
 
 Eigen::Matrix<double, 4, 1> StateEstimator::getImuquaternion() {

@@ -12,15 +12,11 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include "GLFW_callbacks.h"
 #include "MJ_interface.h"
 
-
-#include "data_logger.h"
-#include "useful_math.h"
-#include "MyStateEstimator.h"
-#include "pino_kin_dyn.h"
-#include "PVT_ctrl.h"
 #include <algorithm>
-#include "useful_math.h"
-#include "gait_scheduler.h"
+#include "data_type.h"
+#include "robot_wrapper.h"
+#include "MyStateEstimator.h"
+#include "PVT_ctrl.h"
 
 //************************
 // main function
@@ -33,7 +29,6 @@ int main(int argc, const char** argv)
     // Compile mujoco xml model
     //-------------------------------------------------------------------
     const std::string model_path = MODEL_DIR + "/scene_state_est.xml";
-    // const std::string model_path = (argc > 1) ? argv[1] : model_path; // if input model path in the arg then use that path
     std::cout << "Input model path: " + model_path + "\n";
     char loadError[1024] = ""; // character array, size 1024
     // load/compile xml model
@@ -46,29 +41,26 @@ int main(int argc, const char** argv)
     }
     mjData *mj_data = mj_makeData(mj_model); // pointer to mjData struct
     std::cout << "Compile mujoco xml done\n";
-    
+
     //************************************************************* */
-    // ini classes
+    // init classes: exercises the sensor -> state-estimate -> joint-PD
+    // control pipeline (MJ_Interface, RobotSensor, RobotWrapper,
+    // StateEstimator, PVT_Ctr), plus a ghost-overlay visualization of the
+    // state estimate and a live plot of the foot touch sensors
     //************************************************************* */
     const std::string joint_ctrl_config_path = "config/12dof_joint_config.yaml";
-    UIctr uiController(mj_model,mj_data);   // UI control for Mujoco
+    UIctr uiController(mj_model, mj_data);   // UI control for Mujoco
     MJ_Interface mj_interface(mj_model, mj_data, joint_ctrl_config_path.c_str()); // data interface for Mujoco
     // print out xml model info
     std::printf("MuJoCo xml model info: \n");
     mj_interface.printInfo();
-    GaitScheduler gaitScheduler(0.4, mj_model->opt.timestep); // gait scheduler
 
     const std::string urdf_path = "models/urdf/biped_robot_12dof.urdf";
-    Pin_KinDyn kinDynSolver(urdf_path.c_str()); // kinematics and dynamics solver
+    RobotWrapper robot_wrapper(urdf_path);
+    RobotSensor rb_sensors(mj_model->na);
 
-    DataBus RobotState(kinDynSolver.model_nv); // data bus
-
-    PVT_Ctr pvtCtr(mj_model->opt.timestep,joint_ctrl_config_path.c_str());// PVT joint control
-    
-    // FootPlacement footPlacement; // foot-placement planner
-    // JoyStickInterpreter jsInterp(mj_model->opt.timestep); // desired baselink velocity generator
-    DataLogger logger("record/wbc_walk_control.log"); // data logger
-    StateEstimator state_estimator = StateEstimator(mj_model->opt.timestep, true);
+    PVT_Ctr pvtCtr(mj_model->opt.timestep, joint_ctrl_config_path.c_str()); // PVT joint control
+    StateEstimator state_estimator(mj_model->opt.timestep, true);
 
     // scene_state_est.xml merges the real robot and a "_est"-suffixed ghost
     // twin (biped_robot_floatingbase_ghost_12dof.xml) into one model/mjData,
@@ -101,136 +93,63 @@ int main(int argc, const char** argv)
     int realFreeQposAdr = mj_model->jnt_qposadr[realFreeJointId];
     state_estimator.setBasePosEst(Eigen::Map<Eigen::Vector3d>(mj_data->qpos + realFreeQposAdr));
 
-
     //************************************************************* */
     // variables ini
     //************************************************************* */
-    
-    double stand_legLength = 0.75; // desired baselink height
-    double foot_height = 0.07; // distance between the foot ankel joint and the bottom
-    double  xv_des = 0.7;  // desired velocity in x direction
-
-    RobotState.width_hips = 0.334;
-    
-    //mju_copy(mj_data->qpos, mj_model->key_qpos, mj_model->nq*1); // set ini pos in Mujoco
-    int model_nv=kinDynSolver.model_nv;
-
-    // // ini position and posture for foot-end
-    std::vector<double> motor_pos_des(model_nv - 6, 0); //=12, -6 to exclude the floating base dof in pinocchio model
-    std::vector<double> motor_pos_cur(model_nv - 6, 0);
-    std::vector<double> motor_vel_des(model_nv - 6, 0);
-    std::vector<double> motor_vel_cur(model_nv - 6, 0);
-    std::vector<double> motor_tau_des(model_nv - 6, 0);
-    std::vector<double> motor_tau_cur(model_nv - 6, 0);
-    Eigen::Vector3d fe_l_pos_L_des = {0.0, RobotState.width_hips / 2, -stand_legLength};  // desired left feet pos
-    Eigen::Vector3d fe_r_pos_L_des = {0.0, -RobotState.width_hips / 2, -stand_legLength}; // desired right feet pos
-
-    Eigen::Vector3d fe_l_eul_L_des = {0.0, 0.0, 0.0};
-    Eigen::Vector3d fe_r_eul_L_des = {0.0, 0.0, 0.0};
-    Eigen::Matrix3d fe_l_rot_des = eul2Rot(fe_l_eul_L_des(0), fe_l_eul_L_des(1), fe_l_eul_L_des(2));
-    Eigen::Matrix3d fe_r_rot_des = eul2Rot(fe_r_eul_L_des(0), fe_r_eul_L_des(1), fe_r_eul_L_des(2));
-
-    std::cout << "Init variable done\n";
-    // solving inverse kinematics
-    auto resLeg = kinDynSolver.computeInK_Leg(fe_l_rot_des, fe_l_pos_L_des, fe_r_rot_des, fe_r_pos_L_des);
-
-    Eigen::VectorXd qIniDes=Eigen::VectorXd::Zero(mj_model->nq,1);
-    qIniDes.block(7, 0, mj_model->nq - 7, 1) = resLeg.jointPosRes;
-
-    // // register variable name for data logger
-    // logger.addIterm("simTime", 1);
-    // logger.addIterm("motor_pos_cur",model_nv-6);
-    // logger.addIterm("motor_vel_cur",model_nv-6);
-    // logger.addIterm("rpy",3);
-    // logger.addIterm("fL",3);
-    // logger.addIterm("fR",3);
-    // logger.addIterm("basePos",3);
-    // logger.addIterm("baseLinVel",3);
-    // logger.addIterm("baseAcc",3);
-    // logger.addIterm("baseAngVel",3);
-    // logger.finishItermAdding();
+    const double init_base_height = 0.75;
+    VectorXd qIniDes = robot_wrapper.computeInitial_Stand(init_base_height);
+    printf("Init standing joint config: \n");
+    std::cout << qIniDes << std::endl;
 
     /// ----------------- sim Loop ---------------
-    double simEndTime=30;
     mjtNum simstart = mj_data->time;
     double simTime = mj_data->time;
-    double startSteppingTime=3;
-    double startWalkingTime=5;
-    int count = 0;
 
     // for ramping the standing
     const double rampDuration = 2.0;
     double rampFrac = std::min(simTime / rampDuration, 1.0);
-    Eigen::VectorXd rampedJointPos = rampFrac * resLeg.jointPosRes;
+    Eigen::VectorXd rampedJointPos = rampFrac * qIniDes;
 
     // init UI: GLFW
     uiController.iniGLFW();
     uiController.disableTracking(); // enable viewpoint tracking of the body 1 of the robot
-    uiController.createWindow("Demo",false);
+    uiController.createWindow("Demo", false);
 
     // real-time plot of the foot touch sensors (lf-touch, rf-touch)
     const char* touchLineNames[2] = {"lf-touch", "rf-touch"};
     const float touchLineColors[2][3] = {{1, 0, 0}, {0, 0, 1}};
     uiController.initSensorFigure("Foot Touch Sensors", touchLineNames, touchLineColors, 2);
 
-    while( !glfwWindowShouldClose(uiController.window))
+    while (!glfwWindowShouldClose(uiController.window))
     {
         // advance interactive simulation for 1/60 sec
         //  Assuming MuJoCo can simulate faster than real-time, which it usually can,
         //  this loop will finish on time for the next frame to be rendered at 60 fps.
         //  Otherwise add a cpu timer and exit this loop when it is time to render.
-        simstart=mj_data->time;
-        while( mj_data->time - simstart < 1.0/60.0 && uiController.runSim) // press "1" to pause and resume, "2" to step the simulation
+        simstart = mj_data->time;
+        while (mj_data->time - simstart < 1.0 / 60.0 && uiController.runSim) // press "1" to pause and resume, "2" to step the simulation
         {
             mj_step(mj_model, mj_data);
             uiController.applyPerturbation();
+            simTime = mj_data->time;
 
-            simTime=mj_data->time;
-            // update robot state from mujoco simulator
-            mj_interface.updateSensorValues();
-            mj_interface.dataBusWrite(RobotState); // also calls RobotState.updateQ()
+            mj_interface.updateSensorValues(rb_sensors); // propagate sensor values to rb_sensors
 
-            // RobotState.updateQ() (just called above) copies
-            // motors_pos_cur/motors_vel_cur straight into q(7:)/dq(6:),
-            // assuming they're already in Pinocchio's joint order -- but
-            // MJ_Interface actually returns them alphabetically (from its
-            // YAML config's keys), a different order entirely. Left as-is,
-            // computeJ_dJ() below would run FK on a shuffled leg
-            // configuration, handing the EKF a badly wrong foot-position
-            // measurement that biases the base-position estimate by several
-            // centimeters. Overwrite with a correctly reordered copy first.
-            std::vector<double> q_pin = kinDynSolver.mapJointVecFromOrder(RobotState.motors_pos_cur, mj_interface.JointName);
-            std::vector<double> dq_pin = kinDynSolver.mapJointVecFromOrder(RobotState.motors_vel_cur, mj_interface.JointName);
-            for (size_t i = 0; i < q_pin.size(); i++) {
-                RobotState.q(i + 7) = q_pin[i];
-                RobotState.dq(i + 6) = dq_pin[i];
-            }
-
-            // forward kinematics: needed to populate RobotState.fe_l_pos_L /
-            // fe_r_pos_L / fe_l_vel_L / fe_r_vel_L, which is what
-            // state_estimator.getSensorMeansurement() below reads the foot
-            // position/velocity measurement from
-            kinDynSolver.dataBusRead(RobotState);
-            kinDynSolver.computeJ_dJ();
-            kinDynSolver.dataBusWrite(RobotState);
-
-            // feed the EKF: touch sensors for contact detection, then the
-            // rest of the measurement (imu, joints, foot pos/vel), then step
-            state_estimator.getSensorMeansurement(RobotState);
-            state_estimator.update(RobotState);
+            // reads rb_sensors + robot_wrapper (for foot FK), runs the KF, and
+            // writes the estimated base pose/velocity back into
+            // robot_wrapper.q/dq via updateRobotState()
+            state_estimator.update(rb_sensors, robot_wrapper);
 
             rampFrac = std::min(simTime / rampDuration, 1.0);
-            rampedJointPos = rampFrac * resLeg.jointPosRes;
-            RobotState.motors_pos_des = kinDynSolver.mapJointVecToOrder(rampedJointPos, pvtCtr.getMotorNames());
-            RobotState.motors_vel_des= motor_vel_des;
-            RobotState.motors_tor_des= motor_tau_des;
+            rampedJointPos = rampFrac * qIniDes;
 
-            pvtCtr.dataBusRead(RobotState); // to update joint command
-            pvtCtr.calMotorsPVT(); // calculate joint torque
+            pvtCtr.getFeedbackMotorState(robot_wrapper); // read back the estimated joint pos/vel
+            pvtCtr.calMotorsPVT(rampedJointPos, VectorXd::Zero(robot_wrapper.model_na_),
+                                VectorXd::Zero(robot_wrapper.model_na_)); // PD impedance stand control
 
-            pvtCtr.dataBusWrite(RobotState); // set to RobotState
-            mj_interface.setMotorsTorque(RobotState.motors_tor_out); // Set joint torque to mujoco
+            mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor); // set joint torque to mujoco
         }
+
         // propagate the state estimate into the ghost overlay's qpos/qvel,
         // then re-run forward kinematics (not mj_step -- the ghost is never
         // simulated, only ever visually puppeted by directly overwriting its

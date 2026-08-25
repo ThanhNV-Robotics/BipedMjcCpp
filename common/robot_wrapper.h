@@ -23,6 +23,7 @@
 
 #include "data_type.h"
 #include <exception>
+#include "useful_math.h"
 
 class RobotWrapper {
 
@@ -67,6 +68,7 @@ class RobotWrapper {
         Vector3d vel_base_W;
         Vector3d vel_R_feet_W, vel_L_feet_W;
         Vector3d vel_R_feet_B, vel_L_feet_B;
+        Vector3d vel_CoM_W;
 
         //*********************************************** */
         // computed dynamics terms
@@ -85,6 +87,18 @@ class RobotWrapper {
         void computeKin ();
         void computeDyn ();
 
+        Vector12d computeFootInBase (ActuatorState actuator_state);
+
+        struct IkRes
+        {
+            int status;
+            int itr;
+            Eigen::VectorXd err;
+            Eigen::VectorXd jointPosRes;
+        };
+
+        IkRes computeInK_Leg(const Eigen::Matrix3d &Rdes_L, const Eigen::Vector3d &Pdes_L, const Eigen::Matrix3d &Rdes_R, const Eigen::Vector3d &Pdes_R);
+        VectorXd computeInitial_Stand(const double base_height);
         //Constructor
         RobotWrapper(const std::string& urdf_path);
 
@@ -99,12 +113,5 @@ class RobotWrapper {
         std::vector<pinocchio::JointIndex> left_leg_joint_ids_;  // joint IDs in left leg subtree
         std::vector<pinocchio::JointIndex> right_leg_joint_ids_; // joint IDs in right leg subtree
 
-        ActuatedJointState actuated_joint_state_;
-
-        // VectorXd ddq; // joint acceleration
-        Vector3d imu_accel_L_; // imu acceleration, in local imu frame
-        Vector3d imu_gyro_L_; // imu angular velocity/ gyroscope in local frame
-        Quat  imu_quat_W_; // imu quaternion, w.r.t global frame
-        
         std::string robot_urdf_path_;
 };

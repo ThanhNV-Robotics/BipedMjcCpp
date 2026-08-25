@@ -14,13 +14,13 @@ PVT_Ctr::PVT_Ctr(double timeStepIn, const char *yamlPath) {
     // read joint pvt parameters
     YAML::Node root_read = YAML::LoadFile(yamlPath);
 
-    // joint names come from the config file's top-level keys; yaml-cpp
-    // preserves the file's own order, so sort alphabetically to keep it
-    // deterministic and independent of how the yaml file lists joints
+    // joint names come from the config file's top-level keys, in file order
+    // (yaml-cpp preserves it) -- this order must match the URDF's joint
+    // declaration order (see the note at the top of the yaml file), so it
+    // agrees with RobotWrapper's Pinocchio joint order without any reordering
     for (const auto &kv : root_read) {
         motorName.push_back(kv.first.as<std::string>());
     }
-    std::sort(motorName.begin(), motorName.end());
     jointNum=motorName.size();
 
     tau_out_lpf.assign(jointNum,LPF_Fst());
@@ -73,6 +73,19 @@ void PVT_Ctr::dataBusRead(DataBus &busIn) {
     motor_tor_des=busIn.motors_tor_des;
 }
 
+void PVT_Ctr::getFeedbackMotorState (RobotWrapper &robot_wrapper)
+{
+    // robot_wrapper.q = [base_pos(3), base_quat(4), joint_pos(jointNum)], so
+    // joint positions start at index 7 (see RobotWrapper::updateRobotState).
+    // motor_pos_cur is std::vector<double>, so Eigen's block expression needs
+    // to be copied element-by-element via Eigen::Map, not assigned directly.
+    Eigen::VectorXd::Map(motor_pos_cur.data(), motor_pos_cur.size()) = robot_wrapper.q.segment(7, jointNum);
+
+    // robot_wrapper.dq = [base_lin_vel(3), base_ang_vel(3), joint_vel(jointNum)],
+    // so joint velocities start at index 6 here (no quaternion in dq).
+    Eigen::VectorXd::Map(motor_vel.data(), motor_vel.size()) = robot_wrapper.dq.segment(6, jointNum);
+}
+
 void PVT_Ctr::dataBusWrite(DataBus &busIn) {
     busIn.motors_tor_out=motor_tor_out_motor;
     busIn.motors_tor_cur=motor_tor_out_link;
@@ -122,6 +135,22 @@ void PVT_Ctr::calMotorsPVT(double deltaP_Lim) {
         motor_tor_out_motor[i]=tauDes/gear[i];
         motor_tor_out_link[i]=tauDes;
         motor_pos_des_old[i]=pDes;
+    }
+}
+
+// joint PD impedance control from explicit reference vectors (bypasses
+// motor_pos_des/motor_vel_des/motor_tor_des, unlike the other overloads)
+void PVT_Ctr::calMotorsPVT (VectorXd ref_pos, VectorXd ref_vel, VectorXd tau_ff)
+{
+    for (int i=0;i<jointNum;i++)
+    {
+        double tauDes = PV_enable[i]*pvt_Kp[i]*(ref_pos(i)-motor_pos_cur[i])
+                       + PV_enable[i]*pvt_Kd[i]*(ref_vel(i)-motor_vel[i])
+                       + tau_ff(i);
+        if (fabs(tauDes)>=fabs(maxTor[i]))
+            tauDes = sign(tauDes)*maxTor[i];
+        motor_tor_out_motor[i]=tauDes/gear[i];
+        motor_tor_out_link[i]=tauDes;
     }
 }
 
