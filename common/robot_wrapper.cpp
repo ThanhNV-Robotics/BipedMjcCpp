@@ -86,7 +86,9 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     J_base_W.block<3, 3>(0, 0) = MatrixXd::Identity(3,3);
     J_base_W.block<3, 3>(3, 3) = MatrixXd::Identity(3,3);
 
-    dJ_base_W = Jacobian6::Zero(6, model_nv_); // fixed as J_base_W = const 
+    dJ_base_W = Jacobian6::Zero(6, model_nv_); // fixed as J_base_W = const
+    dJ_Lfeet_W = Jacobian6::Zero(6, model_nv_); // must be pre-sized before
+    dJ_Rfeet_W = Jacobian6::Zero(6, model_nv_); // getJointJacobianTimeVariation() fills them in computeKin()
 
     Jcom_W    = Jacobian3::Zero(3, model_nv_);
 
@@ -139,6 +141,13 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     this->max_joint_pos_ = pin_model_.upperPositionLimit.tail(model_na_);
     this->joint_vel_limit_ = pin_model_.velocityLimit.tail(model_na_);
     this->joint_torque_limit_ = pin_model_.effortLimit.tail(model_na_);
+
+    // model_fixedbase_.names[0] is "universe" (Pinocchio's implicit root),
+    // so the model_na_ actuated joints start at index 1
+    for (int pinoIdx = 0; pinoIdx < model_na_; ++pinoIdx)
+    {
+        jointNames_.push_back(model_fixedbase_.names[pinoIdx + 1]);
+    }
 }
 
 void RobotWrapper::updateRobotState (RobotConfiguration q, RobotSpatialVelocity dq)
@@ -162,6 +171,11 @@ void RobotWrapper::updateRobotState (RobotConfiguration q, RobotSpatialVelocity 
     this->dq.segment<3>(3) = q.quat_b_W.inverse() * dq.wb_W; // base angular velocity, convert to local frame also
 
     this->dq.segment(6, this->model_na_) = dq.dq_j; // joint velocity
+}
+
+void RobotWrapper::integrateConfig (const VectorXd &delta_q)
+{
+    this->q = pin::integrate(pin_model_, this->q, delta_q);
 }
 
 void RobotWrapper::computeDyn()
@@ -264,10 +278,15 @@ void RobotWrapper::computeKin() // Compute J_lf(q)
     dJ_Rfeet_W = dJ_Rfeet_W* Mpj;
 
 
-    // Frame position in World Frame
+    // Frame position in World Frame. oMi[0] is pinocchio's "universe" joint,
+    // always fixed at identity -- the floating base is joint index 1 (same
+    // index used for base_rot above), not 0.
     pos_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].translation(); // right feet position
     pos_R_feet_W = pin_data_.oMi[right_leg_joint_ids_.back()].translation();
-    pos_base_W = pin_data_.oMi[0].translation();
+    pos_base_W = pin_data_.oMi[1].translation();
+    // dq's base-linear block is in the base's LOCAL frame (see the frame
+    // note at the top of this file), rotated to world here by base_rot
+    vel_base_W = base_rot * dq.segment<3>(0);
 
     // Orientation in World frame
     rot_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].rotation();

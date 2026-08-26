@@ -50,7 +50,13 @@ Eigen::MatrixXd pseudoInv_right(const Eigen::MatrixXd &M)
 
 Eigen::MatrixXd pseudoInv_right_weighted(const Eigen::MatrixXd &M, const Eigen::DiagonalMatrix<double, -1> &W)
 {
-    double damp = 0;
+    // Tikhonov/damped-least-squares regularization: without this, an exactly
+    // (or near-exactly) singular M*W^-1*M^T -- e.g. a task whose Jacobian has
+    // been projected into an exhausted null space, a real occurrence in
+    // priority IK/WBC near a kinematic singularity like a fully-extended
+    // knee -- makes completeOrthogonalDecomposition().pseudoInverse() hit a
+    // 0/0-type edge case and return NaN instead of a small/zero correction.
+    double damp = 1e-6;
     Eigen::MatrixXd Mres;
     Mres = M * W.inverse() * M.transpose();
     //    Mres=W.inverse()*M.transpose()* pseudoInv_SVD(Mres);

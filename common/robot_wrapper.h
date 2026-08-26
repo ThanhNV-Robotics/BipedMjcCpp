@@ -40,6 +40,11 @@ class RobotWrapper {
         VectorXd joint_vel_limit_;
         VectorXd joint_torque_limit_;
 
+        // actuated joint names, in Pinocchio joint order (URDF declaration
+        // order) -- the same order used by q/dq's joint segments, min/max_joint_pos_,
+        // joint_vel/torque_limit_, computeInitial_Stand()'s return value, etc.
+        std::vector<std::string> jointNames_;
+
         //*********************************************** */
         // configuration space
         VectorXd q, dq, ddq;  //note for dq:  dq = [local_base_velocity_linear, local_base_velocity_angular, joint_velocities]
@@ -86,6 +91,12 @@ class RobotWrapper {
         void updateRobotState (RobotConfiguration rb_cf, RobotSpatialVelocity rb_v);
         void computeKin ();
         void computeDyn ();
+
+        // advance this->q by a tangent-space step delta_q (dim model_nv_),
+        // e.g. a differential-IK correction -- uses pinocchio::integrate so
+        // the floating-base quaternion is composed correctly, unlike a naive
+        // q += delta_q (which doesn't make sense for the quaternion block)
+        void integrateConfig (const VectorXd &delta_q);
 
         Vector12d computeFootInBase (ActuatorState actuator_state);
 

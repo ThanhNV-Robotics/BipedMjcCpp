@@ -18,8 +18,6 @@ struct Task {
 
     std::string taskName;
 
-    int ee_index; // end-effector index to access Jacobian, position, velocity from robotwrapper
-    
     VectorXd X_cur, dX_cur; // feedback in task space
     VectorXd deltaX_des, X_des, dX_des, ddX_des; //task space desired velocity and acceleration 
     VectorXd errX, derrX;
@@ -30,7 +28,7 @@ struct Task {
     MatrixXd kp, kd; // pd gain in task space
     Eigen::DiagonalMatrix<double, -1> W; //weighted matrix for pseudo inverse
 
-    Task(std::string name, int eeId) {taskName = name; ee_index = eeId;}; // constructor
+    Task(std::string name) {taskName = name;}; // constructor
 };
 
 class KinWBC {
@@ -38,12 +36,16 @@ public:
     // Constructor
     KinWBC ();
     // construct stand and walk task
-    Task task_left_contact  = Task("left_contact", 1); // input 1 to access to left_feet (jacobian, position, vel)
-    Task task_right_contact  = Task("right_contact", 2); // input 2 to access to right_feet (jacobian, position, vel)
+    Task task_left_contact  = Task("left_contact"); // input 1 to access to left_feet (jacobian, position, vel)
+    Task task_right_contact  = Task("right_contact"); // input 2 to access to right_feet (jacobian, position, vel)
 
-    Task task_CoMXY = Task("CoMXY", 3);  // input 3 to access to Jcom_W in robot_wrapper
-    Task task_base_height = Task("base_height", 0); // input 0 to access to base end-effector
-    std::vector<Task> kin_task_stand;
+    Task task_CoMXY = Task("CoMXY");  // input 3 to access to Jcom_W in robot_wrapper
+    Task task_base_height = Task("base_height"); // input 0 to access to base end-effector
+    Task task_base_rpy = Task("base_rpy"); // control base orientation
+    // pointers to the named task_* members above, in priority order (index 0
+    // = highest priority) -- NOT copies, so updateReference()/updateCurrent()
+    // writing into task_left_contact etc. is visible here without re-syncing
+    std::vector<Task*> kin_task_stand;
     // std::vector<Task> kin_task_walk;
     Eigen::VectorXd out_delta_q, out_dq, out_ddq;
 
