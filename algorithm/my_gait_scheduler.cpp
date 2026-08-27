@@ -7,7 +7,9 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 */
 
 #include "my_gait_scheduler.h"
+#include "data_type.h"
 
+// Constructor
 // Note: no double-support here, swing time always equals to stance time
 MyGaitScheduler::MyGaitScheduler(double tSwingIn, double dtIn)
 {
@@ -15,66 +17,66 @@ MyGaitScheduler::MyGaitScheduler(double tSwingIn, double dtIn)
     dt = dtIn;
     phi = 0;
     isIni = false;
-	firstleg=DataBus::LSt;
-    legState=DataBus::DSt;
+	firstleg=LegState::LSt;
+    legState=LegState::DSt;
     legStateNext=firstleg;
-    motionState=DataBus::Stand;
+    motionState=MotionState::STAND;
     enableNextStep= false;
     touchDown = false;
 }
 
-void MyGaitScheduler::dataBusRead(const DataBus &robotState)
-{
-	if (motionState != DataBus::Stand && stepNumCur == 0)
-		legState=firstleg;
-    model_nv = robotState.model_nv;
-    torJoint = Eigen::VectorXd::Zero(model_nv - 6);
-    for (int i = 0; i < model_nv - 6; i++)
-    {
-        torJoint[i] = robotState.motors_tor_cur[i];
-    }
-    dyn_M = robotState.dyn_M;
-    dyn_Non = robotState.dyn_Non;
-    J_l = robotState.J_l;
-    dJ_l = robotState.dJ_l;
-    J_r = robotState.J_r;
-    dJ_r = robotState.dJ_r;
-    Fz_L_m = robotState.fL[2];
-    Fz_R_m = robotState.fR[2];
-    hip_l_pos_W = robotState.hip_l_pos_W;
-    hip_r_pos_W = robotState.hip_r_pos_W;
-    fe_r_pos_W = robotState.fe_r_pos_W;
-    fe_l_pos_W = robotState.fe_l_pos_W;
-    fe_l_rot_W = robotState.fe_l_rot_W;
-    fe_r_rot_W = robotState.fe_r_rot_W;
-    dq = robotState.dq;
-    motionState = robotState.motionState;
-}
+// void MyGaitScheduler::dataBusRead(const DataBus &robotState)
+// {
+// 	if (motionState != DataBus::Stand && stepNumCur == 0)
+// 		legState=firstleg;
+//     model_nv = robotState.model_nv;
+//     torJoint = Eigen::VectorXd::Zero(model_nv - 6);
+//     for (int i = 0; i < model_nv - 6; i++)
+//     {
+//         torJoint[i] = robotState.motors_tor_cur[i];
+//     }
+//     dyn_M = robotState.dyn_M;
+//     dyn_Non = robotState.dyn_Non;
+//     J_l = robotState.J_l;
+//     dJ_l = robotState.dJ_l;
+//     J_r = robotState.J_r;
+//     dJ_r = robotState.dJ_r;
+//     Fz_L_m = robotState.fL[2];
+//     Fz_R_m = robotState.fR[2];
+//     hip_l_pos_W = robotState.hip_l_pos_W;
+//     hip_r_pos_W = robotState.hip_r_pos_W;
+//     fe_r_pos_W = robotState.fe_r_pos_W;
+//     fe_l_pos_W = robotState.fe_l_pos_W;
+//     fe_l_rot_W = robotState.fe_l_rot_W;
+//     fe_r_rot_W = robotState.fe_r_rot_W;
+//     dq = robotState.dq;
+//     motionState = robotState.motionState;
+// }
 
-void MyGaitScheduler::dataBusWrite(DataBus &robotState)
-{
-    robotState.tSwing = tSwing;
-    robotState.swingStartPos_W = swingStartPos_W;
-    robotState.stanceDesPos_W = stanceStartPos_W;
-    robotState.posHip_W = posHip_W;
-    robotState.posST_W = posST_W;
-    robotState.theta0 = theta0;
-    robotState.legState = legState;
-    robotState.legStateNext = legStateNext;
-    robotState.phi = phi;
-    robotState.FL_est = FLest;
-    robotState.FR_est = FRest;
-    if (legState == DataBus::LSt)
-    {
-        robotState.stance_fe_pos_cur_W = fe_l_pos_W;
-        robotState.stance_fe_rot_cur_W = fe_l_rot_W;
-    }
-    else if (legState == DataBus::RSt){
-        robotState.stance_fe_pos_cur_W=fe_r_pos_W;
-        robotState.stance_fe_rot_cur_W=fe_r_rot_W;
-    }
-    robotState.motionState = motionState;
-}
+// void MyGaitScheduler::dataBusWrite(DataBus &robotState)
+// {
+//     robotState.tSwing = tSwing;
+//     robotState.swingStartPos_W = swingStartPos_W;
+//     robotState.stanceDesPos_W = stanceStartPos_W;
+//     robotState.posHip_W = posHip_W;
+//     robotState.posST_W = posST_W;
+//     robotState.theta0 = theta0;
+//     robotState.legState = legState;
+//     robotState.legStateNext = legStateNext;
+//     robotState.phi = phi;
+//     robotState.FL_est = FLest;
+//     robotState.FR_est = FRest;
+//     if (legState == DataBus::LSt)
+//     {
+//         robotState.stance_fe_pos_cur_W = fe_l_pos_W;
+//         robotState.stance_fe_rot_cur_W = fe_l_rot_W;
+//     }
+//     else if (legState == DataBus::RSt){
+//         robotState.stance_fe_pos_cur_W=fe_r_pos_W;
+//         robotState.stance_fe_rot_cur_W=fe_r_rot_W;
+//     }
+//     robotState.motionState = motionState;
+// }
 
 void MyGaitScheduler::step()
 {
@@ -86,15 +88,15 @@ void MyGaitScheduler::step()
 
     double dPhi{0};
 
-    if (motionState == DataBus::Walk2Stand)
+    if (motionState == MotionState::WALK_TO_STAND)
     {
         enableNextStep = false;
 		start_walk = false;
         if (touchDown)
-            motionState = DataBus::Stand;
+            motionState = MotionState::STAND;
     }
 
-    if (motionState == DataBus::Stand)
+    if (motionState == MotionState::STAND)
     {
         dPhi = 0;
         phi = 0; // need to refined
@@ -102,12 +104,12 @@ void MyGaitScheduler::step()
         enableNextStep = false;
         stepNumCur=0;
     }
-    else if (motionState == DataBus::Walk)
+    else if (motionState == MotionState::WALK)
     {
         enableNextStep = true;
         dPhi = 1.0 / tSwing * dt;
     }
-    else if (motionState == DataBus::Walk2Stand)
+    else if (motionState == MotionState::WALK_TO_STAND)
         dPhi = 1.0 / tSwing * dt;
 
     phi += dPhi;
@@ -118,7 +120,7 @@ void MyGaitScheduler::step()
     {
         isIni = true;
 		legState = firstleg;
-        if (legState == DataBus::LSt)
+        if (legState == LegState::LSt)
         { // here define which leg support first
             swingStartPos_W = fe_r_pos_W;
             stanceStartPos_W = fe_l_pos_W;
@@ -134,12 +136,12 @@ void MyGaitScheduler::step()
     // if (legState == DataBus::LSt && ((FRest[2] >= 280 && phi >= 0.6) || (phi >=0.99)))
     // if (legState == DataBus::LSt && phi >= 0.9)
 
-    if (legState == DataBus::LSt && phi >= 0.9)
+    if (legState == LegState::LSt && phi >= 0.9)
     {
         if (enableNextStep)
         {
             // std::cout << "#######right" << std::endl;
-            legState = DataBus::RSt;
+            legState = LegState::RSt;
             swingStartPos_W = fe_l_pos_W;
             stanceStartPos_W = fe_r_pos_W;
             phi = 0;
@@ -149,12 +151,12 @@ void MyGaitScheduler::step()
     // else if (legState == DataBus::RSt && FLest[2] >= 280 && phi >= 0.6)
     // else if (legState == DataBus::RSt && ((FLest[2] >= 280 && phi >= 0.6) || (phi >=0.99)))
     // else if (legState == DataBus::RSt && phi >= 0.9)
-    else if (legState == DataBus::RSt && phi >= 0.9)
+    else if (legState == LegState::RSt && phi >= 0.9)
     {
         if (enableNextStep)
         {
             // std::cout << "#######left" << std::endl;
-            legState = DataBus::LSt;
+            legState = LegState::LSt;
             swingStartPos_W = fe_r_pos_W;
             stanceStartPos_W = fe_l_pos_W;
             phi = 0;
@@ -165,18 +167,18 @@ void MyGaitScheduler::step()
     if (!enableNextStep)
     {
         // if (legState == DataBus::LSt && FRest[2] >= 200)
-        if (legState == DataBus::LSt && phi >= 0.9)
+        if (legState == LegState::LSt && phi >= 0.9)
         {
             touchDown = true;
             stepNumCur++;
-			legState = DataBus::DSt;
+			legState = LegState::DSt;
         }
         // if (legState == DataBus::RSt && FLest[2] >= 200)
-        if (legState == DataBus::RSt && phi >= 0.9)
+        if (legState == LegState::RSt && phi >= 0.9)
         {
             touchDown = true;
             stepNumCur++;
-			legState = DataBus::DSt;
+			legState = LegState::DSt;
         }
     }
 
@@ -184,33 +186,33 @@ void MyGaitScheduler::step()
     {
         phi = 1;
     }
-    if (legState == DataBus::LSt)
+    if (legState == LegState::LSt)
     {
         posHip_W = hip_r_pos_W;
         posST_W = fe_l_pos_W;
         theta0 = -3.1415 * 0.5;
-        legStateNext = DataBus::RSt;
-		if (motionState==DataBus::Walk)
-        	legStateNext = DataBus::RSt;
-		else if (motionState==DataBus::Walk2Stand)
-			legStateNext = DataBus::DSt;
+        legStateNext = LegState::RSt;
+		if (motionState == MotionState::WALK)
+        	legStateNext = LegState::RSt;
+		else if (motionState == MotionState::WALK_TO_STAND)
+			legStateNext = LegState::DSt;
     }
-    else if (legState == DataBus::RSt)
+    else if (legState == LegState::RSt)
     {
         posHip_W = hip_l_pos_W;
         posST_W = fe_r_pos_W;
         theta0 = 3.1415 * 0.5;
-        legStateNext = DataBus::LSt;
-		if (motionState==DataBus::Walk)
-        	legStateNext = DataBus::LSt;
-		else if (motionState==DataBus::Walk2Stand)
-			legStateNext = DataBus::DSt;
+        legStateNext = LegState::LSt;
+		if (motionState==MotionState::WALK)
+        	legStateNext = LegState::LSt;
+		else if (motionState == MotionState::WALK_TO_STAND)
+			legStateNext = LegState::DSt;
     }
 	else{
 		posHip_W = hip_l_pos_W;
 		posST_W=fe_r_pos_W;
 		theta0=3.1415*0.5;
-		legStateNext = DataBus::DSt;
+		legStateNext = LegState::DSt;
 	}
 
 }

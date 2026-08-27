@@ -110,3 +110,18 @@ struct RobotSpatialVelocity
         return v;
     }
 };
+
+enum LegState
+{
+    LSt, // left leg is stance/support leg
+    RSt, // right leg is stance/support leg
+    DSt // double support no use but reserverd
+};
+
+enum MotionState
+{
+    STAND,
+    WARM_UP,
+    WALK_TO_STAND,
+    WALK
+};

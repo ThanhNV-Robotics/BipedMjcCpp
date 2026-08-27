@@ -1,12 +1,16 @@
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
-#include <iomanip>
+#include <vector>
 #include <mujoco/mujoco.h>
 #include <GLFW/glfw3.h>
 #include "GLFW_callbacks.h"
+#include "RealtimePlot.h"
 #include "robot_wrapper.h"
 #include "KinWBC.h"
 #include "joystick_interpreter.h"
 #include "foot_placement.h"
+#include "my_gait_scheduler.h"
 
 const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
@@ -33,8 +37,10 @@ int main()
     RobotWrapper robot_wrapper(URDF_PATH);
     KinWBC kin_wbc;
     JoyStickInterpreter joyStick(kin_wbc.dt);
+    MyGaitScheduler gaitScheduler(0.5, kin_wbc.dt);
     FootPlacement footPlanner; // default-constructed: computeWBC_IK's stand
                                 // tasks don't currently read from it at all
+    
 
     // per-joint MuJoCo qpos/qvel address, looked up by name in
     // robot_wrapper.jointNames_'s order (Pinocchio/URDF order) -- matches
@@ -57,18 +63,16 @@ int main()
     uiController.disableTracking();
     uiController.createWindow("KinWBC forward-kinematics check", false);
 
-    // RobotWrapper starts at pin::neutral(), i.e. every joint angle is 0 -- a
-    // fully straight leg, a classic leg-Jacobian singularity (vertical
-    // foot/torso motion vanishes w.r.t. knee angle at full extension). Seed a
-    // proper bent-knee stand posture instead, via the same IK
-    // (computeInK_Leg) already used/proven elsewhere in this codebase for the
-    // "ramped stand" reference, rather than starting exactly on top of the
-    // singularity and relying only on pseudoInv_right_weighted()'s damping
-    // (useful_math.cpp) to survive it.
-    // Note: this only seeds the joint angles -- the floating base's world
-    // position (q(0:3)) is independent of joint angles in this model, so
-    // pos_base_W's starting value is still 0 either way, unaffected by this.
+
+    RealtimePlot heightPlot(mj_model, 500, 400, "Base Height vs Target", 5.0);
+    heightPlot.setYLabel("meters");
+    heightPlot.setYLimit(-0.3, 0.1); 
+    heightPlot.setLineWidth(2.5f);
+
+    // Initially starting at a bended configuration to avoid singularity
+
     const double standLegLength = 0.75;
+    robot_wrapper.q(2) = standLegLength; // init initial base height
     robot_wrapper.q.segment(7, robot_wrapper.model_na_) = robot_wrapper.computeInitial_Stand(standLegLength);
 
     robot_wrapper.computeKin();
@@ -77,64 +81,45 @@ int main()
 
     const int numSteps = 3000;
     const double lowerRate = 0.05; // m/s, commanded torso-lowering speed
-    // Newton-step damping for the integration below -- out_delta_q is sized
-    // to eliminate the *entire* current task error in one step (same
-    // formulation as PriorityTasks::computeAll()), which is fine near
-    // convergence but can overshoot/diverge far from it or near a
-    // near-singular Jacobian, so only take a fraction of it per iteration
-    // (mirrors computeInK_Leg's DT=0.7 damping on its own Newton step).
-    const double stepSize = 0.2;
+    const double stepSize = 1;
 
-    joyStick.vz_W = -lowerRate;
-    joyStick.pz_W = initial_height;
+    
+    joyStick.setIniPos(0,0,robot_wrapper.q(2),0);
+    joyStick.setPzRef(0.67, 2); // set target reference base height
 
     int i = 0;
-    while (!glfwWindowShouldClose(uiController.window) && i < numSteps)
+    double simTime = 0.0;
+    const double startWarmUpTime = 2.5;
+
+    while (!glfwWindowShouldClose(uiController.window))
     {
-        if (uiController.runSim) // press "1" to pause/resume, "2" to step
+        double frameStart = simTime;
+        while (uiController.runSim && (simTime - frameStart) < 1.0 / 60.0 ) // press "1" to pause/resume, "2" to step
         {
             robot_wrapper.computeKin();
             kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper);
 
-            if (i % 100 == 0)
+            if (i % 500 == 0)
             {
-                std::cout << std::fixed << std::setprecision(5)
-                          << "step " << std::setw(5) << i
-                          << " | base height: " << robot_wrapper.pos_base_W(2)
-                          << " | target pz_W: " << joyStick.pz_W
-                          << " | base_height errX: " << kin_wbc.task_base_height.errX(0)
-                          << " | out_delta_q norm: " << kin_wbc.out_delta_q.norm()
-                          << " | out_dq norm: " << kin_wbc.out_dq.norm()
-                          << std::endl;
-            }
-
-            if (!kin_wbc.out_delta_q.allFinite() || !kin_wbc.out_dq.allFinite())
-            {
-                std::cerr << "out_delta_q/out_dq went non-finite at step " << i
-                          << " -- likely the knee-straight singularity noted above.\n";
-                for (size_t t = 0; t < kin_wbc.kin_task_stand.size(); t++)
-                {
-                    Task *task = kin_wbc.kin_task_stand[t];
-                    std::cerr << "  task[" << t << "] " << task->taskName
-                              << " delta_q finite=" << task->delta_q.allFinite()
-                              << " dq finite=" << task->dq.allFinite()
-                              << std::endl;
-                }
-                break;
+                std::cout << "CoM position: " << robot_wrapper.pos_CoM_W[0] << ", "
+                          << robot_wrapper.pos_CoM_W[1] << ", "
+                          << robot_wrapper.pos_CoM_W[2] << std::endl;
             }
 
             robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
 
-            // ramp the commanded height down, same "velocity * dt" convention
-            // task_base_height.deltaX_des already uses internally
-            joyStick.pz_W += joyStick.vz_W * kin_wbc.dt;
+            // joyStick.pz_W += joyStick.vz_W * kin_wbc.dt;
+            // joyStick.pz_W = standLegLength - 0.05 * std::abs(std::sin(2*3.1415*0.5*simTime));
+
+            joyStick.step();
+            simTime += kin_wbc.dt;
 
             // puppet MuJoCo's qpos/qvel from robot_wrapper's kinematic state
             // and re-run FK -- mj_forward, never mj_step, so nothing here is
             // ever physically simulated, only kinematically displayed
             mj_data->qpos[freeQposAdr + 0] = robot_wrapper.q(0);
             mj_data->qpos[freeQposAdr + 1] = robot_wrapper.q(1);
-            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2) + 0.8;
+            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2);
             // MuJoCo's free-joint quaternion order is (w,x,y,z); Pinocchio's
             // q.segment<4>(3) coeffs order is (x,y,z,w)
             mj_data->qpos[freeQposAdr + 3] = robot_wrapper.q(6); // w
@@ -159,7 +144,12 @@ int main()
             i++;
         }
 
-        uiController.updateScene(); // once per rendered frame, not per IK step
+
+        heightPlot.addPoint("base height", simTime, robot_wrapper.pos_base_W(2));
+        heightPlot.addPoint("target pz_W", simTime, joyStick.pz_W);
+        heightPlot.render(); // makes heightPlot's own context current, draws, swaps buffers
+
+        uiController.updateScene();
     }
 
     std::cout << "Final base height: " << robot_wrapper.pos_base_W(2) << "\n";

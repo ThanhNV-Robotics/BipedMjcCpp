@@ -217,9 +217,6 @@ void RobotWrapper::computeDyn()
     pinocchio::ccrba(pin_model_, pin_data_, q, dq);
     // inertia = pin_data_.Ig.inertia().matrix();
 
-    // cal CoM
-    CoM_pos = pin_data_.com[0];
-
     // Transform to world frame to accept global frame in put
 
     // Transform Jacobians to accept input dq with base velocity in WORLD frame
@@ -277,13 +274,12 @@ void RobotWrapper::computeKin() // Compute J_lf(q)
     dJ_Lfeet_W = dJ_Lfeet_W* Mpj;
     dJ_Rfeet_W = dJ_Rfeet_W* Mpj;
 
-
     // Frame position in World Frame. oMi[0] is pinocchio's "universe" joint,
-    // always fixed at identity -- the floating base is joint index 1 (same
-    // index used for base_rot above), not 0.
+    // always fixed at identity -- the floating base is joint index 1
     pos_L_feet_W = pin_data_.oMi[left_leg_joint_ids_.back()].translation(); // right feet position
     pos_R_feet_W = pin_data_.oMi[right_leg_joint_ids_.back()].translation();
     pos_base_W = pin_data_.oMi[1].translation();
+    pos_CoM_W = pin_data_.com[0];
     // dq's base-linear block is in the base's LOCAL frame (see the frame
     // note at the top of this file), rotated to world here by base_rot
     vel_base_W = base_rot * dq.segment<3>(0);

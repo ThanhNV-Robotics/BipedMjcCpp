@@ -20,10 +20,20 @@ void JoyStickInterpreter::setWzDesLPara(double wzDesLIn, double timeToReach) {
     wzLGen.setPara(wzDesLIn, timeToReach);
 }
 
+void JoyStickInterpreter::setPzRef (double pzDesIn, double timeToReach) // control the base height
+{
+    PzLGen.setPara(pzDesIn, timeToReach);
+}
+
+
 void JoyStickInterpreter::step() {
     vx_L=vxLGen.step();
     vy_L=vyLGen.step();
+    pz_W = PzLGen.step();
+
     wz_L=wzLGen.step();
+
+
     thetaZ=thetaZ+wz_L*dt;
     vx_W=cos(thetaZ)*vx_L-sin(thetaZ)*vy_L;
     vy_W=sin(thetaZ)*vx_L+cos(thetaZ)*vy_L;
@@ -62,14 +72,21 @@ void JoyStickInterpreter::setIniPos(double posX, double posY, double thetaZ) {
 }
 
 void JoyStickInterpreter::setIniPos(
-    const double posX, 
-    const double posY, 
-    const double posZ,
-    const double thetaZ) {
+    double posX,
+    double posY,
+    double posZ,
+    double thetaZ) {
     px_W = posX;
     py_W = posY;
     pz_W = posZ;
     this->thetaZ = thetaZ;
+
+    // pz_W is overwritten every step() by PzLGen.step() (a RampTrajectory),
+    // whose own internal starting point (yOld) is otherwise left at its
+    // constructor default of 0 -- without this, the very next step() call
+    // discards the posZ just set above and the height ramps from 0 toward
+    // whatever setPzRef()'s target is, instead of from posZ.
+    PzLGen.resetOut(posZ);
 }
 
 

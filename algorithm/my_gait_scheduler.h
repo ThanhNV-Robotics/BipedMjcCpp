@@ -1,6 +1,9 @@
-#include "data_bus.h"
 #include <Eigen/Dense>
 #include "useful_math.h"
+
+#include "data_type.h"
+#include "robot_wrapper.h"
+#include "joystick_interpreter.h"
 
 class MyGaitScheduler {
 public:
@@ -11,11 +14,14 @@ public:
     double dt{0.001};
     double FzThrehold{100};
     double Fz_L_m{0}, Fz_R_m{0};
-    DataBus::LegState firstleg, legState, legStateNext;
-    DataBus::MotionState motionState;
+    // DataBus::LegState firstleg, legState, legStateNext;
+    LegState firstleg, legState, legStateNext;
+    MotionState motionState;
     MyGaitScheduler(double tSwingIn, double dtIn);
-    void dataBusRead(const DataBus &robotState);
-    void dataBusWrite(DataBus &robotState);
+
+    // void dataBusRead(const DataBus &robotState);
+    // void dataBusWrite(DataBus &robotState);
+
     void step();
     void stop();
 	void start();

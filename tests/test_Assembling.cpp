@@ -94,7 +94,6 @@ int main()
 
             rampFrac = std::min(simTime / rampDuration, 1.0);
             rampedJointPos = rampFrac * qIniDes;
-
             pvtCtr.getFeedbackMotorState(robot_wrapper); // read back the estimated joint pos/vel
             pvtCtr.calMotorsPVT(rampedJointPos, VectorXd::Zero(robot_wrapper.model_na_),
                                 VectorXd::Zero(robot_wrapper.model_na_)); // PD impedance stand control

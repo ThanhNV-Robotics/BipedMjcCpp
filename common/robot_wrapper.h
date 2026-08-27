@@ -1,3 +1,5 @@
+// Author: Van Thanh Nguyen
+
 #pragma once
 
 #include <pinocchio/multibody/model.hpp>
@@ -80,7 +82,6 @@ class RobotWrapper {
         // Mass, Mass^-1, Coriollis, Gravity, Centroidal Momentumn Matrix (CMM) Ag(q) and dAg(q)
         MatrixXd dyn_M, dyn_M_inv, dyn_C, dyn_G, dyn_Ag, dyn_dAg;
         Eigen::VectorXd dyn_Non; // C + G
-        Eigen::Vector3d CoM_pos; // CoM position
 
         //*********************************************** */
         // useful function

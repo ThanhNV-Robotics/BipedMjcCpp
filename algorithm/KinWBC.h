@@ -35,17 +35,18 @@ class KinWBC {
 public:
     // Constructor
     KinWBC ();
-    // construct stand and walk task
+    // member tasks
     Task task_left_contact  = Task("left_contact"); // input 1 to access to left_feet (jacobian, position, vel)
     Task task_right_contact  = Task("right_contact"); // input 2 to access to right_feet (jacobian, position, vel)
-
     Task task_CoMXY = Task("CoMXY");  // input 3 to access to Jcom_W in robot_wrapper
     Task task_base_height = Task("base_height"); // input 0 to access to base end-effector
     Task task_base_rpy = Task("base_rpy"); // control base orientation
-    // pointers to the named task_* members above, in priority order (index 0
-    // = highest priority) -- NOT copies, so updateReference()/updateCurrent()
-    // writing into task_left_contact etc. is visible here without re-syncing
-    std::vector<Task*> kin_task_stand;
+
+    Task task_static_contact = Task("static_contact"); // specifically for walking
+    Task task_swing_leg = Task("swing_leg");
+
+    std::vector<Task*> kin_task_stand; //using pointer to access the member tasks
+    std::vector<Task*> kin_task_walk; 
     // std::vector<Task> kin_task_walk;
     Eigen::VectorXd out_delta_q, out_dq, out_ddq;
 

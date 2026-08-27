@@ -10,29 +10,31 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 
 #include "ramp_trajectory.h"
 #include "data_bus.h"
+#include "data_type.h"
 
 class JoyStickInterpreter {
 public:
-    double dt;
+    
     double thetaZ{0.0};
-    JoyStickInterpreter(double dtIn): dt{dtIn}, vxLGen(dtIn), vyLGen(dtIn), wzLGen(dtIn), thetazGen(dtIn){};
+    JoyStickInterpreter(double dtIn): dt{dtIn}, vxLGen(dtIn), vyLGen(dtIn), PzLGen(dtIn), wzLGen(dtIn), thetazGen(dtIn){};
     void setVxDesLPara(double vxDesLIn, double timeToReach);
     void setVyDesLPara(double vyDesLIn, double timeToReach);
+    void setPzRef (double pzDesIn, double timeToReach); // control the base height
     void setWzDesLPara(double wzDesLIn, double timeToReach);
     void setIniPos(double posX, double posY, double thetaZ);
-    void setIniPos(    
-        const double posX, const double posY, 
-        const double posZ, const double thetaZ);
+    void setIniPos(double posX, double posY, 
+        double posZ, double thetaZ);
     void step();
     double vx_W{0.0}, vy_W{0.0}, vz_W{0.0}; // generated velocity in x and y direction w.r.t world frame
     double px_W{0.0}, py_W{0.0}, pz_W{0.0}; // generated position in x and y direction w.r.t world frame
     double vx_L{0.0}, vy_L{0.0}, wz_L{0.0}; // generated linear velocity in x and y direction, angular velocity in z direction, w.r.t body frame
     void dataBusWrite(DataBus &dataBus);
     void reset();
-    RampTrajectory vxLGen, vyLGen, wzLGen, thetazGen;
-//private:
+    RampTrajectory vxLGen, vyLGen, PzLGen, wzLGen, thetazGen;
 
-
+private:
+    double dt;
+    MotionState motion_state;
 };
 
 
