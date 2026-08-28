@@ -8,6 +8,7 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 
 #include "my_gait_scheduler.h"
 #include "data_type.h"
+#include "joystick_interpreter.h"
 
 // Constructor
 // Note: no double-support here, swing time always equals to stance time
@@ -78,7 +79,7 @@ MyGaitScheduler::MyGaitScheduler(double tSwingIn, double dtIn)
 //     robotState.motionState = motionState;
 // }
 
-void MyGaitScheduler::step()
+void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
 {
     // Eigen::VectorXd tauAll;
     // tauAll = Eigen::VectorXd::Zero(model_nv);

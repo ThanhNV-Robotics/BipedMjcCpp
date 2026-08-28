@@ -40,7 +40,10 @@ void JoyStickInterpreter::step() {
     px_W+=vx_W*dt;
     py_W+=vy_W*dt;
 }
-
+void JoyStickInterpreter::setMotionState (MotionState motion_state)
+{
+    this->motion_state = motion_state;
+}
 // NOTE: currently only the  x, y directions are controlled. Walking on a slope is not considered here.
 void JoyStickInterpreter::dataBusWrite(DataBus &dataBus) {
     dataBus.js_pos_des[0]=px_W;

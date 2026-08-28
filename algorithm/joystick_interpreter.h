@@ -24,6 +24,7 @@ public:
     void setIniPos(double posX, double posY, double thetaZ);
     void setIniPos(double posX, double posY, 
         double posZ, double thetaZ);
+    void setMotionState (MotionState motion_state);
     void step();
     double vx_W{0.0}, vy_W{0.0}, vz_W{0.0}; // generated velocity in x and y direction w.r.t world frame
     double px_W{0.0}, py_W{0.0}, pz_W{0.0}; // generated position in x and y direction w.r.t world frame

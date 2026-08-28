@@ -6,6 +6,7 @@
 #include <GLFW/glfw3.h>
 #include "GLFW_callbacks.h"
 #include "RealtimePlot.h"
+#include "data_type.h"
 #include "robot_wrapper.h"
 #include "KinWBC.h"
 #include "joystick_interpreter.h"
@@ -64,10 +65,10 @@ int main()
     uiController.createWindow("KinWBC forward-kinematics check", false);
 
 
-    RealtimePlot heightPlot(mj_model, 500, 400, "Base Height vs Target", 5.0);
-    heightPlot.setYLabel("meters");
-    heightPlot.setYLimit(-0.3, 0.1); 
-    heightPlot.setLineWidth(2.5f);
+    RealtimePlot JoyStickPlot(mj_model, 500, 400, "Joystick Command", 5.0);
+    JoyStickPlot.setYLabel("meters");
+    JoyStickPlot.setYLimit(-0.3, 0.1); 
+    JoyStickPlot.setLineWidth(2.5f);
 
     // Initially starting at a bended configuration to avoid singularity
 
@@ -86,6 +87,7 @@ int main()
     
     joyStick.setIniPos(0,0,robot_wrapper.q(2),0);
     joyStick.setPzRef(0.67, 2); // set target reference base height
+    joyStick.setVxDesLPara(0.5, 2);
 
     int i = 0;
     double simTime = 0.0;
@@ -114,12 +116,21 @@ int main()
             joyStick.step();
             simTime += kin_wbc.dt;
 
+            if (simTime >= startWarmUpTime)
+            {
+                joyStick.setMotionState(MotionState::WALK);
+               
+                gaitScheduler.start();
+
+            }
+            // Visualize on mujoco
+
             // puppet MuJoCo's qpos/qvel from robot_wrapper's kinematic state
             // and re-run FK -- mj_forward, never mj_step, so nothing here is
             // ever physically simulated, only kinematically displayed
             mj_data->qpos[freeQposAdr + 0] = robot_wrapper.q(0);
             mj_data->qpos[freeQposAdr + 1] = robot_wrapper.q(1);
-            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2);
+            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2) + 0.05;
             // MuJoCo's free-joint quaternion order is (w,x,y,z); Pinocchio's
             // q.segment<4>(3) coeffs order is (x,y,z,w)
             mj_data->qpos[freeQposAdr + 3] = robot_wrapper.q(6); // w
@@ -145,9 +156,11 @@ int main()
         }
 
 
-        heightPlot.addPoint("base height", simTime, robot_wrapper.pos_base_W(2));
-        heightPlot.addPoint("target pz_W", simTime, joyStick.pz_W);
-        heightPlot.render(); // makes heightPlot's own context current, draws, swaps buffers
+        // JoyStickPlot.addPoint("base height", simTime, robot_wrapper.pos_base_W(2));
+        JoyStickPlot.addPoint("target pz_W", simTime, joyStick.pz_W);
+        JoyStickPlot.addPoint("vx_ref", simTime, joyStick.vx_W);
+        JoyStickPlot.addPoint("vy_ref", simTime, joyStick.vy_W);
+        JoyStickPlot.render(); // makes JoyStickPlot's own context current, draws, swaps buffers
 
         uiController.updateScene();
     }

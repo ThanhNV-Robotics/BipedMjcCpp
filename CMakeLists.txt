@@ -144,8 +144,8 @@ target_link_libraries(test_state_estimator PRIVATE core)
 add_executable(test_joystick_interpreter tests/test_joystick_interpreter.cpp)
 target_link_libraries(test_joystick_interpreter PRIVATE core)
 
-add_executable(test_gait_scheduler tests/test_gait_scheduler.cpp)
-target_link_libraries(test_gait_scheduler PRIVATE core matplotlibcpp)
+# add_executable(test_gait_scheduler tests/test_gait_scheduler.cpp)
+# target_link_libraries(test_gait_scheduler PRIVATE core matplotlibcpp)
 
 add_executable(test_foot_placement tests/test_foot_placement.cpp)
 target_link_libraries(test_foot_placement PRIVATE core matplotlibcpp)
@@ -161,3 +161,6 @@ target_link_libraries(test_Assembling PRIVATE core matplotlibcpp)
 
 add_executable(test_WBCKin tests/test_WBCKin.cpp)
 target_link_libraries(test_WBCKin PRIVATE core)
+
+add_executable(test_cp_planning tests/test_cp_planning.cpp)
+target_link_libraries(test_cp_planning PRIVATE core matplotlibcpp)

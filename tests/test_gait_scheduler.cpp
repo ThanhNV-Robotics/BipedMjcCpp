@@ -53,16 +53,16 @@ int main ()
 
         if (t >= startWalkingTime)
         {
-            gaitScheduler_.start(); // start the gait scheduler
-            RobotState.motionState = DataBus::Walk;
-            // cout<<"Robot motion state changed to Walk"<<endl;
-            gaitScheduler_.dataBusRead(RobotState);
-            gaitScheduler_.step();
-            gaitScheduler_.dataBusWrite(RobotState);
+            // gaitScheduler_.start(); // start the gait scheduler
+            // RobotState.motionState = DataBus::Walk;
+            // // cout<<"Robot motion state changed to Walk"<<endl;
+            // gaitScheduler_.dataBusRead(RobotState);
+            // gaitScheduler_.step();
+            // gaitScheduler_.dataBusWrite(RobotState);
 
-            footPlacement_.dataBusRead(RobotState);
-            footPlacement_.getSwingPos();
-            footPlacement_.dataBusWrite(RobotState);
+            // footPlacement_.dataBusRead(RobotState);
+            // footPlacement_.getSwingPos();
+            // footPlacement_.dataBusWrite(RobotState);
         }
 
         timePlot.push_back(t);

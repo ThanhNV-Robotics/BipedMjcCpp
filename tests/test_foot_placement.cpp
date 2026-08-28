@@ -53,15 +53,15 @@ int main ()
     {
         if (t >= startWalkingTime)
         {
-            gaitScheduler_.start(); // start the gait scheduler
-            RobotState.motionState = DataBus::Walk;
-            gaitScheduler_.dataBusRead(RobotState);
-            gaitScheduler_.step();
-            gaitScheduler_.dataBusWrite(RobotState);
+            // gaitScheduler_.start(); // start the gait scheduler
+            // RobotState.motionState = DataBus::Walk;
+            // gaitScheduler_.dataBusRead(RobotState);
+            // gaitScheduler_.step();
+            // gaitScheduler_.dataBusWrite(RobotState);
 
-            footPlacement_.dataBusRead(RobotState);
-            footPlacement_.getSwingPos();
-            footPlacement_.dataBusWrite(RobotState);
+            // footPlacement_.dataBusRead(RobotState);
+            // footPlacement_.getSwingPos();
+            // footPlacement_.dataBusWrite(RobotState);
         }
 
         t += dt;

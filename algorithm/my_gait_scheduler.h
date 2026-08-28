@@ -22,7 +22,7 @@ public:
     // void dataBusRead(const DataBus &robotState);
     // void dataBusWrite(DataBus &robotState);
 
-    void step();
+    void step(JoyStickInterpreter &joyStick);
     void stop();
 	void start();
     Eigen::VectorXd FLest,FRest;
