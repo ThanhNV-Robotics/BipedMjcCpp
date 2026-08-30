@@ -71,6 +71,13 @@ RealtimePlot::RealtimePlot(mjModel *model, int width, int height, const char *ti
     // GL context is current -- make this window's context current first so
     // it gets its own, independent of UIctr's.
     glfwMakeContextCurrent(window_);
+    // Plot windows don't need monitor-sync pacing -- only the main 3D view
+    // does. Each RealtimePlot owns a separate GL context, and its swap
+    // interval otherwise falls back to the driver default (often vsync-on
+    // too); with everything rendered from one thread, N vsync'd windows'
+    // glfwSwapBuffers() calls stack sequentially (up to N frame-waits per
+    // loop iteration), so more plot windows made the whole app laggier.
+    glfwSwapInterval(0);
     mjr_defaultContext(&con_);
     mjr_makeContext(model, &con_, mjFONTSCALE_150);
 

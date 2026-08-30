@@ -12,6 +12,7 @@
 #include "joystick_interpreter.h"
 #include "foot_placement.h"
 #include "my_gait_scheduler.h"
+#include "CP_Planning.h"
 
 const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
@@ -41,7 +42,9 @@ int main()
     MyGaitScheduler gaitScheduler(0.5, kin_wbc.dt);
     FootPlacement footPlanner; // default-constructed: computeWBC_IK's stand
                                 // tasks don't currently read from it at all
-    
+    const double dt = 0.001;
+    const double zc = 0.75;
+    CP_Planning cp_planning(dt, zc);
 
     // per-joint MuJoCo qpos/qvel address, looked up by name in
     // robot_wrapper.jointNames_'s order (Pinocchio/URDF order) -- matches
@@ -65,10 +68,21 @@ int main()
     uiController.createWindow("KinWBC forward-kinematics check", false);
 
 
+    // Signal plotting 
     RealtimePlot JoyStickPlot(mj_model, 500, 400, "Joystick Command", 5.0);
     JoyStickPlot.setYLabel("meters");
-    JoyStickPlot.setYLimit(-0.3, 0.1); 
+    JoyStickPlot.setYLimit(-0.35, 0.1); 
     JoyStickPlot.setLineWidth(2.5f);
+
+    RealtimePlot GaitPhasePlot(mj_model, 500, 400, "Gait Phase Plot", 5.0);
+    GaitPhasePlot.setYLabel("Phase");
+    GaitPhasePlot.setYLimit(0, 1);
+    GaitPhasePlot.setLineWidth(2.5f);
+
+    RealtimePlot CPPlanning (mj_model, 500, 400, "Capture Point Planning", 5.0);
+    CPPlanning.setYLabel("Cxi Y des");
+    CPPlanning.setYLimit(-0.4, 0.4);
+    CPPlanning.setLineWidth(2.5f);
 
     // Initially starting at a bended configuration to avoid singularity
 
@@ -91,7 +105,7 @@ int main()
 
     int i = 0;
     double simTime = 0.0;
-    const double startWarmUpTime = 2.5;
+    const double startWarmUpTime = 2;
 
     while (!glfwWindowShouldClose(uiController.window))
     {
@@ -119,12 +133,17 @@ int main()
             if (simTime >= startWarmUpTime)
             {
                 joyStick.setMotionState(MotionState::WALK);
-               
+                gaitScheduler.motionState = MotionState::WALK;
+
                 gaitScheduler.start();
+                gaitScheduler.step(joyStick);
+
+                cp_planning.planWarmingUp(gaitScheduler);
 
             }
-            // Visualize on mujoco
 
+
+            // Visualize on mujoco
             // puppet MuJoCo's qpos/qvel from robot_wrapper's kinematic state
             // and re-run FK -- mj_forward, never mj_step, so nothing here is
             // ever physically simulated, only kinematically displayed
@@ -161,6 +180,12 @@ int main()
         JoyStickPlot.addPoint("vx_ref", simTime, joyStick.vx_W);
         JoyStickPlot.addPoint("vy_ref", simTime, joyStick.vy_W);
         JoyStickPlot.render(); // makes JoyStickPlot's own context current, draws, swaps buffers
+
+        GaitPhasePlot.addPoint("Phase", simTime, gaitScheduler.phi);
+        GaitPhasePlot.render();
+
+        CPPlanning.addPoint("Cxi_Y_d", simTime, cp_planning.cxi_yd);
+        CPPlanning.render();
 
         uiController.updateScene();
     }
