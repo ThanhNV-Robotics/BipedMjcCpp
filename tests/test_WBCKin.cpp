@@ -113,7 +113,7 @@ int main()
         while (uiController.runSim && (simTime - frameStart) < 1.0 / 60.0 ) // press "1" to pause/resume, "2" to step
         {
             robot_wrapper.computeKin();
-            kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper);
+            kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planning);
 
             if (i % 500 == 0)
             {
@@ -184,7 +184,9 @@ int main()
         GaitPhasePlot.addPoint("Phase", simTime, gaitScheduler.phi);
         GaitPhasePlot.render();
 
-        CPPlanning.addPoint("Cxi_Y_d", simTime, cp_planning.cxi_yd);
+        CPPlanning.addPoint("Cxi_Y_d", simTime, cp_planning.cxi_yd_);
+        CPPlanning.addPoint("CoM_Y", simTime, cp_planning.yc_);
+        CPPlanning.addPoint("Cxi_Y", simTime, cp_planning.cxi_y_);
         CPPlanning.render();
 
         uiController.updateScene();

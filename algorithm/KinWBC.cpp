@@ -35,12 +35,12 @@ void KinWBC::printTaskInfo() {
     }
 }
 
-void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper)
+void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const CP_Planning& cp_planning)
 {
     // Input: robot_wrapper provide computed robot state and kinematic quantity
 
     // get reference
-    updateReference(joyStick, footPlanner);
+    updateReference(joyStick, footPlanner, cp_planning);
     // get feedback
     updateCurrent(robot_wrapper);
 
@@ -81,7 +81,7 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
 
 }
 
-void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacement& footPlanner_cmd)
+void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacement& footPlanner_cmd, const CP_Planning& cp_planning)
 {
     // update robot reference task space
 
@@ -98,10 +98,15 @@ void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacem
     task_right_contact.dX_des = VectorXd::Zero(6);
     task_right_contact.ddX_des = VectorXd::Zero(6);
 
-    // CoMXY
+    // CoMXY -- tracks CP_Planning's generated CoM x,y trajectory (position
+    // and velocity reference; X_des is what errX actually tracks, not
+    // deltaX_des). Before walking starts (cp_planning never having run
+    // planWarmingUp() yet), xc_/yc_/d_xc_/d_yc_ are still their
+    // constructor-zero values, so this holds CoM centered at (0,0), which is
+    // the desired behavior while standing.
     task_CoMXY.deltaX_des = VectorXd::Zero(2);
-    task_CoMXY.X_des = VectorXd::Constant(2, 0.05); // commanded CoM x,y offset -- X_des is what errX actually tracks, not deltaX_des
-    task_CoMXY.dX_des = VectorXd::Zero(2);
+    task_CoMXY.X_des = Vector2d(cp_planning.xc_, cp_planning.yc_);
+    task_CoMXY.dX_des = Vector2d(cp_planning.d_xc_, cp_planning.d_yc_);
     task_CoMXY.ddX_des = VectorXd::Zero(2);
 
     // base heigh    

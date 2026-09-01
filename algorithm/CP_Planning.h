@@ -7,7 +7,7 @@ class CP_Planning
 {
     public:
         const double g = 9.81; //gravity constant
-        const double wd_hip = 0.33; // hip width
+        const double wd_hip = 0.2; // hip width
         double t_swing;
         double w;
         CP_Planning (const double dtIn, const double zIn);
@@ -16,6 +16,7 @@ class CP_Planning
         double CP_dynamics (double p, double cxi);
         void computeCoM (double cxi_x, double cxi_y);
         void planWarmingUp (MyGaitScheduler &gait_scheduler);
+        void computeCP (double zmp_x, double zmp_y);
 
         
     // private:
@@ -23,7 +24,10 @@ class CP_Planning
         double xc_, yc_, zc_; // CoM position
         double d_xc_, d_yc_; // CoM velocity
 
-        double cxi_x_, cxi_y_, cxi_xd, cxi_yd; // capture point
-        LegState leg_state;
+        double cxi_x_, cxi_y_, cxi_xd_, cxi_yd_; // capture point
+        double cxi_x0_, cxi_y0_;
+
+        double px_d_, py_d_; // desired zmp 
+        LegState leg_state_;
 
 };

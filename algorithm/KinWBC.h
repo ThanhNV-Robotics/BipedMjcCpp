@@ -13,6 +13,7 @@
 
 #include "joystick_interpreter.h" // for base reference motion
 #include "foot_placement.h" // for foot reference motion
+#include "CP_Planning.h" // for CoM XY reference motion
 
 struct Task {
 
@@ -53,7 +54,7 @@ public:
     const double dt = 0.001; // sampling time
 
     void printTaskInfo();
-    void updateReference(const JoyStickInterpreter& joyStick, FootPlacement& footPlanner); // get referece from task planner
+    void updateReference(const JoyStickInterpreter& joyStick, FootPlacement& footPlanner, const CP_Planning& cp_planning); // get referece from task planner
     void updateCurrent (const RobotWrapper& rb_wrapper); // update current task space estimation
-    void computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper);
+    void computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const CP_Planning& cp_planning);
 };
