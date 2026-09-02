@@ -7,9 +7,11 @@ class CP_Planning
 {
     public:
         const double g = 9.81; //gravity constant
-        const double wd_hip = 0.2; // hip width
+        const double wd_hip = 0.15; // hip width
         double t_swing;
         double w;
+
+        double crossoverFraction{0.7};
         CP_Planning (const double dtIn, const double zIn);
         
         double CoM_dynamics (double cxi, double xc); // dx = f(x,u)

@@ -7,34 +7,60 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 */
 #include "foot_placement.h"
 #include "bezier_1D.h"
+#include <cmath>
 
-void FootPlacement::dataBusRead(DataBus &robotState)
+void FootPlacement::updateFromRobot(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick)
 {
-    posStart_W = robotState.swingStartPos_W;
-    desV_W = robotState.js_vel_des;
-    desWz_W = robotState.js_omega_des(2);
-    curV_W = robotState.dq.block<3, 1>(0, 0);
-    phi = robotState.phi;
-    hipPos_W = robotState.posHip_W;
-    STPos_W = robotState.posST_W;
-    base_pos = robotState.base_pos;
-    tSwing = robotState.tSwing;
-    theta0 = robotState.theta0;
-    yawCur = robotState.rpy[2];
-    omegaZ_W = robotState.base_omega_W(2);
-    hip_width = robotState.width_hips;
-    legState = robotState.legState;
+    LegState curLegState = gait_scheduler.legState;
+
+    // Snapshot the swing foot's liftoff position the instant the swing leg
+    // changes (stance-leg transition) -- getSwingPos()'s cycloid/Trajectory
+    // blends start from here.
+    Eigen::Vector3d curSwingFootPos_W = (curLegState == LegState::LSt) ? rb_wrapper.pos_R_feet_W : rb_wrapper.pos_L_feet_W;
+    if (!swingInit_ || curLegState != swingLegPrev_)
+    {
+        posStart_W = curSwingFootPos_W;
+        swingInit_ = true;
+    }
+    swingLegPrev_ = curLegState;
+    legState = curLegState;
+
+    phi = gait_scheduler.phi;
+    tSwing = gait_scheduler.tSwing;
+    // baseline swing-arc angle for the current stance side -- mirrors
+    // MyGaitScheduler::step()'s own (private) theta0 computation.
+    theta0 = (curLegState == LegState::LSt) ? -M_PI / 2.0 : M_PI / 2.0;
+
+    base_pos = rb_wrapper.pos_base_W;
+
+    // yaw + world-frame yaw rate, extracted from the base's orientation/
+    // velocity state (Pinocchio's q.segment<4>(3) coeffs order is x,y,z,w;
+    // dq's angular part is base-local, rotated to world here same as
+    // KinWBC::updateCurrent() does for task_base_rpy).
+    Eigen::Quaterniond quat_base_W(rb_wrapper.q(6), rb_wrapper.q(3), rb_wrapper.q(4), rb_wrapper.q(5));
+    Eigen::Matrix3d Rcur_base = quat_base_W.toRotationMatrix();
+    yawCur = std::atan2(Rcur_base(1, 0), Rcur_base(0, 0));
+    omegaZ_W = (Rcur_base * rb_wrapper.dq.segment<3>(3))(2);
+
+    curV_W = rb_wrapper.vel_base_W;
+    desV_W = Eigen::Vector3d(joyStick.vx_W, joyStick.vy_W, 0.0);
+    desWz_W = joyStick.wz_L; // pure z rotation -- body-frame and world-frame rates coincide
+
+    // hipPos_W: RobotWrapper doesn't expose hip frames directly, so
+    // approximate the swinging leg's hip as the base position offset
+    // laterally by half the hip width (no fore/aft or vertical offset).
+    // Swap in an exact hip Jacobian/frame here if RobotWrapper ever adds one.
+    Eigen::Matrix3d Rz;
+    Rz << std::cos(yawCur), -std::sin(yawCur), 0,
+        std::sin(yawCur), std::cos(yawCur), 0,
+        0, 0, 1;
+    double side = (curLegState == LegState::LSt) ? -1.0 : 1.0; // LSt (left stance) -> swing leg is right -> right hip sits on the -y side
+    hipPos_W = base_pos + Rz * Eigen::Vector3d(0, side * hip_width / 2.0, 0);
 }
 
-void FootPlacement::dataBusWrite(DataBus &robotState)
+void FootPlacement::StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick)
 {
-    robotState.swingDesPosCur_W << pDesCur[0], pDesCur[1], pDesCur[2];
-    robotState.swingDesPosFinal_W = posDes_W;
-    robotState.swing_fe_rpy_des_W << 0, 0, robotState.base_rpy_des(2); // WARNING! ThetaZ!
-    robotState.swing_fe_pos_des_W << pDesCur[0], pDesCur[1], pDesCur[2];
-}
-void FootPlacement::getSwingPos()
-{
+    updateFromRobot(rb_wrapper, gait_scheduler, joyStick);
     Eigen::Matrix<double, 4, 1> b;
     b.setZero();
     Eigen::Matrix<double, 1, 4> xNow;
@@ -64,17 +90,16 @@ void FootPlacement::getSwingPos()
     double yOff_L = 0.04;   // 0.01; // foot-end position offset in y direction in body frame, positive for moving the leg inside
     double zOff_W = -0.035; // foot-end position offset in z direction in world frame
 
-    //    posDes_W(2)=STPos_W(2)-0.04;
     posDes_W(2) = base_pos(2) - legLength + zOff_W;
 
     double xOff_W(0), yOff_W(0);
-    if (legState == DataBus::LSt)
+    if (legState == LegState::LSt)
     {
         xOff_W = cos(yawCur) * xOff_L - sin(yawCur) * yOff_L;
         yOff_W = sin(yawCur) * xOff_L + cos(yawCur) * yOff_L;
         // yOff_W = 0.05;
     }
-    else if (legState == DataBus::RSt)
+    else if (legState == LegState::RSt)
     {
         xOff_W = cos(yawCur) * xOff_L - sin(yawCur) * (-yOff_L);
         yOff_W = sin(yawCur) * xOff_L + cos(yawCur) * (-yOff_L);
@@ -85,13 +110,20 @@ void FootPlacement::getSwingPos()
     posDes_W(1) += yOff_W;
     //
     //    double yOff=0.005; // positive for moving the leg inside
-    //    if (legState==DataBus::LSt)
+    //    if (legState==LegState::LSt)
     //        posDes_W(1)+=yOff;
-    //    else if (legState==DataBus::RSt)
+    //    else if (legState==LegState::RSt)
     //        posDes_W(1)-=yOff;
 
-    // cycloid trajectories
-    if (phi < 1.0)
+    // cycloid trajectories -- unless inPlaceOnly, which pins x,y at the
+    // liftoff position instead (lift/lower straight up and down, no
+    // forward stepping).
+    if (inPlaceOnly)
+    {
+        pDesCur[0] = posStart_W(0);
+        pDesCur[1] = posStart_W(1);
+    }
+    else if (phi < 1.0)
     {
         pDesCur[0] = posStart_W(0) + (posDes_W(0) - posStart_W(0)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi));
         pDesCur[1] = posStart_W(1) + (posDes_W(1) - posStart_W(1)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi));
@@ -117,7 +149,15 @@ void FootPlacement::getSwingPos()
     // }
 
     // pDesCur[2] = posStart_W(2) + stepHeight * 0.5 * (1 - cos(2 * 3.1415 * phi)) + (posDes_W(2) - posStart_W(2)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi))+ zStretch;
-    pDesCur[2] = posStart_W(2) + Trajectory(0.2, stepHeight, posDes_W(2) - posStart_W(2)) + zStretch;
+    double zBeforeStretch = posStart_W(2) + Trajectory(0.2, stepHeight, posDes_W(2) - posStart_W(2));
+    // Never plan the swing foot below ground -- clamp zStretch itself
+    // (rather than the final sum) so it can't dig past zBeforeStretch's own
+    // floor. Clamping the sum post-hoc instead would flatten pDesCur[2] at 0
+    // while zStretch keeps accumulating underneath unseen, then jump when
+    // the next cycle's reset suddenly exposes that accumulated offset --
+    // clamping zStretch here keeps it (and so the whole curve) continuous.
+    zStretch = std::max(zStretch, -zBeforeStretch);
+    pDesCur[2] = zBeforeStretch + zStretch;
 }
 
 double FootPlacement::Trajectory(double phase, double hei, double len)

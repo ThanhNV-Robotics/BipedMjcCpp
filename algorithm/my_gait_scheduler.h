@@ -12,7 +12,7 @@ public:
     bool isIni{false};
 	bool start_walk{true};
     double phi{0};
-    double tSwing{0.4};
+    double tSwing{0.8};
     double dt{0.001};
     double FzThrehold{100};
     double Fz_L_m{0}, Fz_R_m{0};
@@ -26,7 +26,7 @@ public:
 
     void step(JoyStickInterpreter &joyStick);
     void stop();
-	void start();
+	void start(JoyStickInterpreter &joystick);
     Eigen::VectorXd FLest,FRest;
     Eigen::VectorXd torJoint;
 

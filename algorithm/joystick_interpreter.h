@@ -31,6 +31,8 @@ public:
     double vx_L{0.0}, vy_L{0.0}, wz_L{0.0}; // generated linear velocity in x and y direction, angular velocity in z direction, w.r.t body frame
     void dataBusWrite(DataBus &dataBus);
     void reset();
+    MotionState getMotionState () {return this->motion_state;};
+
     RampTrajectory vxLGen, vyLGen, PzLGen, wzLGen, thetazGen;
 
 private:

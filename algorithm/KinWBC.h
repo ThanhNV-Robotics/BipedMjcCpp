@@ -14,6 +14,7 @@
 #include "joystick_interpreter.h" // for base reference motion
 #include "foot_placement.h" // for foot reference motion
 #include "CP_Planning.h" // for CoM XY reference motion
+#include "my_gait_scheduler.h" // for motion-state/leg-state task-list switching
 
 struct Task {
 
@@ -45,9 +46,11 @@ public:
 
     Task task_static_contact = Task("static_contact"); // specifically for walking
     Task task_swing_leg = Task("swing_leg");
+    Task task_lift_foot = Task("lift_foot");
 
     std::vector<Task*> kin_task_stand; //using pointer to access the member tasks
-    std::vector<Task*> kin_task_walk; 
+    std::vector<Task*> kin_task_walk; //forward walking
+    std::vector<Task*> kin_task_init_walk; // init walking task 
     // std::vector<Task> kin_task_walk;
     Eigen::VectorXd out_delta_q, out_dq, out_ddq;
 
@@ -55,6 +58,6 @@ public:
 
     void printTaskInfo();
     void updateReference(const JoyStickInterpreter& joyStick, FootPlacement& footPlanner, const CP_Planning& cp_planning); // get referece from task planner
-    void updateCurrent (const RobotWrapper& rb_wrapper); // update current task space estimation
-    void computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const CP_Planning& cp_planning);
+    void updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement& footPlanner); // update current task space estimation
+    void computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const CP_Planning& cp_planning, const MyGaitScheduler& gait_scheduler);
 };

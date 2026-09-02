@@ -19,11 +19,12 @@ KinWBC::KinWBC()
     kin_task_stand.push_back(&task_base_rpy);   
     kin_task_stand.push_back(&task_base_height);
 
-    //---------------Walk---------------------------
-    kin_task_walk.push_back(&task_static_contact);
-    kin_task_walk.push_back(&task_CoMXY);
-    kin_task_walk.push_back(&task_base_rpy);
-    kin_task_walk.push_back(&task_base_height);
+    //---------------Init Walk---------------------------
+    kin_task_init_walk.push_back(&task_static_contact);
+    kin_task_init_walk.push_back(&task_lift_foot);
+    kin_task_init_walk.push_back(&task_CoMXY);
+    kin_task_init_walk.push_back(&task_base_rpy);
+    kin_task_init_walk.push_back(&task_base_height);
 }
 
 void KinWBC::printTaskInfo() {
@@ -35,25 +36,25 @@ void KinWBC::printTaskInfo() {
     }
 }
 
-void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const CP_Planning& cp_planning)
+void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const CP_Planning& cp_planning, const MyGaitScheduler& gait_scheduler)
 {
-    // Input: robot_wrapper provide computed robot state and kinematic quantity
-
     // get reference
     updateReference(joyStick, footPlanner, cp_planning);
     // get feedback
-    updateCurrent(robot_wrapper);
+    updateCurrent(robot_wrapper, footPlanner);
 
+    // switch which task list gets solved based on whether walking has
+    // actually started -- kin_task_stand plants both feet (task_left/right_
+    // contact), which would fight a moving swing foot, so once gait_scheduler
+    // is in WALK, solve kin_task_init_walk (single stance foot + lift_foot)
+    // instead.
+    std::vector<Task*> &kin_task = (gait_scheduler.motionState == MotionState::WALK) ? kin_task_init_walk : kin_task_stand;
 
-
-    // recursive null-space priority solver -- position/velocity level only
-    // (this is a *kinematic* WBC; no dynamically-consistent/mass-matrix
-    // stage here, unlike PriorityTasks::computeAll()). kin_task_stand's
-    // vector order IS the priority order, index 0 = highest.
+    // recursive null-space priority solver
     const int nv = robot_wrapper.model_nv_;
-    for (size_t i = 0; i < kin_task_stand.size(); i++)
+    for (size_t i = 0; i < kin_task.size(); i++)
     {
-        Task &task = *kin_task_stand[i];
+        Task &task = *kin_task[i];
         if (i == 0) // 1st task in the list has the highest priority
         {
             task.N = MatrixXd::Identity(nv, nv);
@@ -63,7 +64,7 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
         }
         else
         {
-            Task &parent = *kin_task_stand[i - 1];
+            Task &parent = *kin_task[i - 1];
             task.N = parent.N * (MatrixXd::Identity(parent.Jpre.cols(), parent.Jpre.cols())
                                   - pseudoInv_right_weighted(parent.Jpre, parent.W) * parent.Jpre);
             task.Jpre = task.J * task.N;
@@ -74,8 +75,8 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
         }
     }
 
-    out_delta_q = kin_task_stand.back()->delta_q;
-    out_dq = kin_task_stand.back()->dq;
+    out_delta_q = kin_task.back()->delta_q;
+    out_dq = kin_task.back()->dq;
 
     return;
 
@@ -87,44 +88,48 @@ void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacem
 
     //---------------------Stand----------------------------------------------
     // left_contact
-    task_left_contact.deltaX_des = VectorXd::Zero(6);
+   
     task_left_contact.X_des = VectorXd::Zero(6);
     task_left_contact.dX_des = VectorXd::Zero(6);
     task_left_contact.ddX_des = VectorXd::Zero(6);
 
-    // right
-    task_right_contact.deltaX_des = VectorXd::Zero(6);
+    // right_contact
+   
     task_right_contact.X_des = VectorXd::Zero(6);
     task_right_contact.dX_des = VectorXd::Zero(6);
     task_right_contact.ddX_des = VectorXd::Zero(6);
 
-    // CoMXY -- tracks CP_Planning's generated CoM x,y trajectory (position
-    // and velocity reference; X_des is what errX actually tracks, not
-    // deltaX_des). Before walking starts (cp_planning never having run
-    // planWarmingUp() yet), xc_/yc_/d_xc_/d_yc_ are still their
-    // constructor-zero values, so this holds CoM centered at (0,0), which is
-    // the desired behavior while standing.
-    task_CoMXY.deltaX_des = VectorXd::Zero(2);
+    // CoMXY -- tracks CP_Planning's generated CoM x,y trajectory 
+    
     task_CoMXY.X_des = Vector2d(cp_planning.xc_, cp_planning.yc_);
     task_CoMXY.dX_des = Vector2d(cp_planning.d_xc_, cp_planning.d_yc_);
     task_CoMXY.ddX_des = VectorXd::Zero(2);
 
-    // base heigh    
-    task_base_height.deltaX_des = VectorXd::Constant(1, joyStick_cmd.vz_W * this->dt); // scalar
+    // base heigh
     task_base_height.X_des = VectorXd::Constant(1, joyStick_cmd.pz_W);
     task_base_height.dX_des = VectorXd::Constant(1, joyStick_cmd.vz_W);
     task_base_height.ddX_des = VectorXd::Zero(1); // feedforward acceleration is 0
 
     // base rpy
-    task_base_rpy.deltaX_des = VectorXd::Zero(3);
     task_base_rpy.X_des = VectorXd::Zero(3);
     task_base_rpy.dX_des = VectorXd::Zero(3);
     task_base_rpy.ddX_des = VectorXd::Zero(3);
 
+    // static_contact
+    task_static_contact.X_des = VectorXd::Zero(6);
+    task_static_contact.dX_des = VectorXd::Zero(6);
+    task_static_contact.ddX_des = VectorXd::Zero(6);
+
+    // lift foot (6-dim: position + orientation)
+    task_lift_foot.X_des = VectorXd::Zero(6);
+    task_lift_foot.X_des.head<3>() = footPlanner_cmd.getSwingDesPos();
+    task_lift_foot.dX_des = VectorXd::Zero(6);
+    task_lift_foot.ddX_des = VectorXd::Zero(6);
+
     return;
 }
 
-void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper) // update current task space estimation
+void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement& footPlanner) // update current task space estimation
 {
     // joint-space weight matrices for pseudoInv_right_weighted(), M^+_W =
     // W^-1 M^T (M W^-1 M^T)^-1 -- W must be sized to M's COLUMN count
@@ -136,6 +141,8 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper) // update current ta
     task_CoMXY.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_base_height.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_base_rpy.W = Eigen::VectorXd::Ones(nv).asDiagonal();
+    task_static_contact.W = Eigen::VectorXd::Ones(nv).asDiagonal();
+    task_lift_foot.W = Eigen::VectorXd::Ones(nv).asDiagonal();
 
     // base height (task is 1-dim: z only -- J_base_W's row 2 is the base's z-row,
     // since J_base_W.block<3,3>(0,0) = I maps base linear-vel dof straight to rows 0-2)
@@ -187,6 +194,56 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper) // update current ta
     task_CoMXY.errX = task_CoMXY.X_des - task_CoMXY.X_cur;
     task_CoMXY.derrX = task_CoMXY.dX_des - task_CoMXY.dX_cur;
 
-    //
+    // static_contact (6-dim: position + orientation) -- whichever foot is
+    // currently the stance leg, "hold current pose" convention (errX/derrX
+    // forced to Zero(6) below regardless of X_des, matching task_left_
+    // contact/task_right_contact above). DSt (before walking starts / mid-
+    // transition) defaults to the left foot.
+    if (footPlanner.legState == LegState::RSt)
+    {
+        task_static_contact.X_cur = rb_wrapper.pos_R_feet_W;
+        task_static_contact.dX_cur = rb_wrapper.vel_R_feet_W;
+        task_static_contact.J = rb_wrapper.J_Rfeet_W;
+        task_static_contact.dJ = rb_wrapper.dJ_Rfeet_W;
+    }
+    else // LSt or DSt
+    {
+        task_static_contact.X_cur = rb_wrapper.pos_L_feet_W;
+        task_static_contact.dX_cur = rb_wrapper.vel_L_feet_W;
+        task_static_contact.J = rb_wrapper.J_Lfeet_W;
+        task_static_contact.dJ = rb_wrapper.dJ_Lfeet_W;
+    }
+    task_static_contact.errX = VectorXd::Zero(6);
+    task_static_contact.derrX = VectorXd::Zero(6);
+
+    // lift foot (6-dim: position + orientation, full 6xnv Jacobian -- J_L/
+    // Rfeet_W are already in Pinocchio's LOCAL_WORLD_ALIGNED frame, same as
+    // task_left/right_contact/static_contact above, so no extra rotation is
+    // needed for the angular rows, unlike J_base_W). Unlike static_contact,
+    // this IS an active tracking task: errX uses the real X_des - X_cur
+    // error, not a forced Zero. Swing foot is whichever ISN'T the current
+    // stance leg -- opposite of static_contact's selection above.
+    if (footPlanner.legState == LegState::RSt) // right stance -> left swinging
+    {
+        Eigen::Matrix3d Rcur_L = rb_wrapper.rot_L_feet_W; // diffRot's 2nd arg is a non-const ref, needs an lvalue
+        task_lift_foot.X_cur = VectorXd::Zero(6);
+        task_lift_foot.X_cur.head<3>() = rb_wrapper.pos_L_feet_W;
+        task_lift_foot.X_cur.tail<3>() = diffRot(Eigen::Matrix3d::Identity(), Rcur_L);
+        task_lift_foot.dX_cur = rb_wrapper.J_Lfeet_W * rb_wrapper.dq;
+        task_lift_foot.J = rb_wrapper.J_Lfeet_W;
+        task_lift_foot.dJ = rb_wrapper.dJ_Lfeet_W;
+    }
+    else // LSt or DSt -> right swinging
+    {
+        Eigen::Matrix3d Rcur_R = rb_wrapper.rot_R_feet_W;
+        task_lift_foot.X_cur = VectorXd::Zero(6);
+        task_lift_foot.X_cur.head<3>() = rb_wrapper.pos_R_feet_W;
+        task_lift_foot.X_cur.tail<3>() = diffRot(Eigen::Matrix3d::Identity(), Rcur_R);
+        task_lift_foot.dX_cur = rb_wrapper.J_Rfeet_W * rb_wrapper.dq;
+        task_lift_foot.J = rb_wrapper.J_Rfeet_W;
+        task_lift_foot.dJ = rb_wrapper.dJ_Rfeet_W;
+    }
+    task_lift_foot.errX = task_lift_foot.X_des - task_lift_foot.X_cur;
+    task_lift_foot.derrX = task_lift_foot.dX_des - task_lift_foot.dX_cur;
 }
 

@@ -137,7 +137,7 @@ void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
     // if (legState == DataBus::LSt && ((FRest[2] >= 280 && phi >= 0.6) || (phi >=0.99)))
     // if (legState == DataBus::LSt && phi >= 0.9)
 
-    if (legState == LegState::LSt && phi >= 0.9)
+    if (legState == LegState::LSt && phi >= 1.0)
     {
         if (enableNextStep)
         {
@@ -152,7 +152,7 @@ void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
     // else if (legState == DataBus::RSt && FLest[2] >= 280 && phi >= 0.6)
     // else if (legState == DataBus::RSt && ((FLest[2] >= 280 && phi >= 0.6) || (phi >=0.99)))
     // else if (legState == DataBus::RSt && phi >= 0.9)
-    else if (legState == LegState::RSt && phi >= 0.9)
+    else if (legState == LegState::RSt && phi >= 1.0)
     {
         if (enableNextStep)
         {
@@ -168,14 +168,14 @@ void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
     if (!enableNextStep)
     {
         // if (legState == DataBus::LSt && FRest[2] >= 200)
-        if (legState == LegState::LSt && phi >= 0.9)
+        if (legState == LegState::LSt && phi >= 1.0)
         {
             touchDown = true;
             stepNumCur++;
 			legState = LegState::DSt;
         }
         // if (legState == DataBus::RSt && FLest[2] >= 200)
-        if (legState == LegState::RSt && phi >= 0.9)
+        if (legState == LegState::RSt && phi >= 1.0)
         {
             touchDown = true;
             stepNumCur++;
@@ -218,8 +218,9 @@ void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
 
 }
 
-void MyGaitScheduler::start(){
+void MyGaitScheduler::start(JoyStickInterpreter &joystick){
 	start_walk = true;
+    this->motionState = joystick.getMotionState();
 }
 
 

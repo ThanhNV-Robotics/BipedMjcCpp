@@ -17,14 +17,6 @@
 const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
 
-// Pure forward-kinematics check of KinWBC::computeWBC_IK() -- no MuJoCo
-// physics (mj_step) involved at all. Each iteration: recompute Jacobians/
-// positions from the current q (computeKin), solve the null-space priority
-// IK (computeWBC_IK), integrate q by the resulting out_delta_q (a Newton-
-// style correction, so it's damped by stepSize below rather than applied in
-// full), then puppet the MuJoCo robot's qpos/qvel directly from q/dq and call
-// mj_forward (not mj_step) so it's just rendered, not simulated -- this way
-// what's on screen is exactly robot_wrapper's kinematic state, nothing else.
 int main()
 {
     char loadError[1024] = "";
@@ -39,11 +31,11 @@ int main()
     RobotWrapper robot_wrapper(URDF_PATH);
     KinWBC kin_wbc;
     JoyStickInterpreter joyStick(kin_wbc.dt);
-    MyGaitScheduler gaitScheduler(0.5, kin_wbc.dt);
+    MyGaitScheduler gaitScheduler(1.2, kin_wbc.dt);
     FootPlacement footPlanner; // default-constructed: computeWBC_IK's stand
                                 // tasks don't currently read from it at all
     const double dt = 0.001;
-    const double zc = 0.75;
+    const double zc = 0.5;
     CP_Planning cp_planning(dt, zc);
 
     // per-joint MuJoCo qpos/qvel address, looked up by name in
@@ -67,7 +59,6 @@ int main()
     uiController.disableTracking();
     uiController.createWindow("KinWBC forward-kinematics check", false);
 
-
     // Signal plotting 
     RealtimePlot JoyStickPlot(mj_model, 500, 400, "Joystick Command", 5.0);
     JoyStickPlot.setYLabel("meters");
@@ -79,6 +70,11 @@ int main()
     GaitPhasePlot.setYLimit(0, 1);
     GaitPhasePlot.setLineWidth(2.5f);
 
+    RealtimePlot FootPlanning(mj_model, 500, 400, "Foot Planning Plot", 5.0);
+    GaitPhasePlot.setYLabel("Foot trajectory");
+    GaitPhasePlot.setYLimit(0, 1);
+    GaitPhasePlot.setLineWidth(2.5f);
+
     RealtimePlot CPPlanning (mj_model, 500, 400, "Capture Point Planning", 5.0);
     CPPlanning.setYLabel("Cxi Y des");
     CPPlanning.setYLimit(-0.4, 0.4);
@@ -86,9 +82,13 @@ int main()
 
     // Initially starting at a bended configuration to avoid singularity
 
-    const double standLegLength = 0.75;
+    const double standLegLength = 0.72;
     robot_wrapper.q(2) = standLegLength; // init initial base height
     robot_wrapper.q.segment(7, robot_wrapper.model_na_) = robot_wrapper.computeInitial_Stand(standLegLength);
+    footPlanner.legLength = standLegLength; // StepSwingPlanning()'s swing-foot z target is base height minus this --
+                                             // must match the robot's actual leg length, not FootPlacement's default of 1.0
+    footPlanner.inPlaceOnly = true; // lift/lower the swing foot straight up and down, no forward stepping --
+                                     // combined with CoM sway from CP_Planning, robot should not translate forward
 
     robot_wrapper.computeKin();
     const double initial_height = robot_wrapper.pos_base_W(2) ;
@@ -100,49 +100,46 @@ int main()
 
     
     joyStick.setIniPos(0,0,robot_wrapper.q(2),0);
-    joyStick.setPzRef(0.67, 2); // set target reference base height
-    joyStick.setVxDesLPara(0.5, 2);
+    joyStick.setPzRef(standLegLength, 2); // set target reference base height
+    joyStick.setVxDesLPara(0, 2); // no forward velocity command -- combined with footPlanner.inPlaceOnly above,
+                                   // this test should just sway/lift in place, not translate
 
     int i = 0;
     double simTime = 0.0;
     const double startWarmUpTime = 2;
+    
+    bool initTransition = false;
 
     while (!glfwWindowShouldClose(uiController.window))
     {
         double frameStart = simTime;
         while (uiController.runSim && (simTime - frameStart) < 1.0 / 60.0 ) // press "1" to pause/resume, "2" to step
         {
-            robot_wrapper.computeKin();
-            kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planning);
-
-            if (i % 500 == 0)
-            {
-                std::cout << "CoM position: " << robot_wrapper.pos_CoM_W[0] << ", "
-                          << robot_wrapper.pos_CoM_W[1] << ", "
-                          << robot_wrapper.pos_CoM_W[2] << std::endl;
-            }
-
-            robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
-
-            // joyStick.pz_W += joyStick.vz_W * kin_wbc.dt;
-            // joyStick.pz_W = standLegLength - 0.05 * std::abs(std::sin(2*3.1415*0.5*simTime));
+            robot_wrapper.computeKin();           
 
             joyStick.step();
-            simTime += kin_wbc.dt;
+            
 
             if (simTime >= startWarmUpTime)
             {
-                joyStick.setMotionState(MotionState::WALK);
-                gaitScheduler.motionState = MotionState::WALK;
+                if (!initTransition)
+                {
+                    // init gait scheduler and joystick
+                    joyStick.setMotionState(MotionState::WALK);
+                    gaitScheduler.start(joyStick);
+                    initTransition = true;
+                }
 
-                gaitScheduler.start();
                 gaitScheduler.step(joyStick);
-
                 cp_planning.planWarmingUp(gaitScheduler);
+                footPlanner.StepSwingPlanning(robot_wrapper, gaitScheduler, joyStick);
 
             }
 
-
+            // compute WB Kinematic
+            kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planning, gaitScheduler);
+            robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
+            simTime += kin_wbc.dt;
             // Visualize on mujoco
             // puppet MuJoCo's qpos/qvel from robot_wrapper's kinematic state
             // and re-run FK -- mj_forward, never mj_step, so nothing here is
@@ -188,6 +185,9 @@ int main()
         CPPlanning.addPoint("CoM_Y", simTime, cp_planning.yc_);
         CPPlanning.addPoint("Cxi_Y", simTime, cp_planning.cxi_y_);
         CPPlanning.render();
+
+        FootPlanning.addPoint("Foot_Z_Ref", simTime, footPlanner.getSwingDesPos()[2]);
+        FootPlanning.render();
 
         uiController.updateScene();
     }

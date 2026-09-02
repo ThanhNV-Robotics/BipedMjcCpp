@@ -10,6 +10,15 @@ CP_Planning::CP_Planning(const double dtIn, const double zIn)
     xc_ = 0; yc_= 0;
     d_xc_ = d_yc_ = 0;
     cxi_x_ = cxi_y_ = 0;
+    // cxi_xd_/cxi_yd_/cxi_x0_/cxi_y0_ are only ever assigned inside
+    // planWarmingUp()'s DSt->LSt/RSt transition blocks, but its ZMP formula
+    // (px_d_ = (cxi_xd_ - b*cxi_x0_)/(1-b)) reads them unconditionally every
+    // tick regardless of whether that transition has happened yet -- zero
+    // them here so a tick before the first transition (or one that never
+    // transitions, e.g. motionState stuck at STAND) computes a harmless
+    // px_d_=0 instead of reading uninitialized garbage.
+    cxi_xd_ = cxi_yd_ = 0;
+    cxi_x0_ = cxi_y0_ = 0;
     leg_state_ = LegState::DSt; // init at double stand
 }
 
@@ -58,7 +67,7 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = wd_hip;
+        cxi_yd_ = -wd_hip;
     }
 
     if (leg_state_ == LegState::DSt && gait_scheduler.legState == LegState::RSt)
@@ -67,7 +76,7 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = -wd_hip;
+        cxi_yd_ = wd_hip;
     }
 
     if (leg_state_ == LegState::LSt && gait_scheduler.legState == LegState::RSt)
@@ -76,7 +85,7 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = -wd_hip;
+        cxi_yd_ = wd_hip;
     }
 
 
@@ -86,14 +95,29 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = wd_hip;
+        cxi_yd_ = -wd_hip;
     }
 
-    // calculate ZMP
+    // calculate ZMP -- boundary-value target arrival is aimed at
+    // crossoverFraction*t_swing rather than the full phase (see the header
+    // comment on crossoverFraction for why), so the CoM finishes its
+    // weight-shift roughly in step with FootPlacement's swing foot landing,
+    // not only right at phi=1. Once phi passes that point, cxi_x_/cxi_y_
+    // have (by construction) already arrived at cxi_xd_/cxi_yd_, so holding
+    // the ZMP AT that same target for the remainder of the phase keeps them
+    // there (p==cxi at rest satisfies d(cxi)/dt=w*(cxi-p)=0 exactly).
     const double e = 2.718281828459;
-    const double b = std::pow(e, this->w* this->t_swing);
-    px_d_ = (cxi_xd_ - b*cxi_x0_)/(1-b);
-    py_d_ = (cxi_yd_ - b*cxi_y0_)/(1-b);
+    if (phi < crossoverFraction)
+    {
+        const double b = std::pow(e, this->w * crossoverFraction * this->t_swing);
+        px_d_ = (cxi_xd_ - b*cxi_x0_)/(1-b);
+        py_d_ = (cxi_yd_ - b*cxi_y0_)/(1-b);
+    }
+    else
+    {
+        px_d_ = cxi_xd_;
+        py_d_ = cxi_yd_;
+    }
 
     // compute Capture Point
     this->computeCP(px_d_, py_d_);
