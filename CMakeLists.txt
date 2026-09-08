@@ -132,20 +132,12 @@ target_compile_definitions(core PUBLIC PINOCCHIO_STATIC)
 
 # Demo/test executables. Each links against "core", which transitively
 # carries all of core's own dependencies.
-add_executable(float_control demo/float_control.cpp)
-target_link_libraries(float_control PRIVATE core)
-
-add_executable(walk_wbc demo/walk_wbc.cpp)
-target_link_libraries(walk_wbc PRIVATE core)
 
 add_executable(test_state_estimator tests/test_state_estimator.cpp)
 target_link_libraries(test_state_estimator PRIVATE core)
 
 add_executable(test_joystick_interpreter tests/test_joystick_interpreter.cpp)
 target_link_libraries(test_joystick_interpreter PRIVATE core)
-
-# add_executable(test_gait_scheduler tests/test_gait_scheduler.cpp)
-# target_link_libraries(test_gait_scheduler PRIVATE core matplotlibcpp)
 
 add_executable(test_foot_placement tests/test_foot_placement.cpp)
 target_link_libraries(test_foot_placement PRIVATE core matplotlibcpp)
@@ -162,8 +154,8 @@ target_link_libraries(test_Assembling PRIVATE core matplotlibcpp)
 add_executable(test_WBCKin_stand tests/test_WBCKin_stand.cpp)
 target_link_libraries(test_WBCKin_stand PRIVATE core)
 
-add_executable(test_cp_planning tests/test_cp_planning.cpp)
-target_link_libraries(test_cp_planning PRIVATE core matplotlibcpp)
+# add_executable(test_cp_planning tests/test_cp_planning.cpp)
+# target_link_libraries(test_cp_planning PRIVATE core matplotlibcpp)
 
 add_executable(test_WBCKin_walk tests/test_WBCKin_walk.cpp)
 target_link_libraries(test_WBCKin_walk PRIVATE core)

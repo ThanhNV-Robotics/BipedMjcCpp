@@ -9,12 +9,14 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include "my_gait_scheduler.h"
 #include "data_type.h"
 #include "joystick_interpreter.h"
+#include <yaml-cpp/yaml.h>
 
 // Constructor
 // Note: no double-support here, swing time always equals to stance time
-MyGaitScheduler::MyGaitScheduler(double tSwingIn, double dtIn)
+MyGaitScheduler::MyGaitScheduler(const std::string &yamlPath, double dtIn)
 {
-    tSwing = tSwingIn;
+    YAML::Node root = YAML::LoadFile(yamlPath);
+    tSwing = root["gait_scheduler"]["tSwing"].as<double>();
     dt = dtIn;
     phi = 0;
     isIni = false;
@@ -106,6 +108,11 @@ void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
         stepNumCur=0;
     }
     else if (motionState == MotionState::WALK)
+    {
+        enableNextStep = true;
+        dPhi = 1.0 / tSwing * dt;
+    }
+    else if (motionState == WARM_UP) // prepare to walk, swing the com in y direction
     {
         enableNextStep = true;
         dPhi = 1.0 / tSwing * dt;

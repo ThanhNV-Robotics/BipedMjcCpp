@@ -11,7 +11,7 @@ KinWBC::KinWBC()
 {
     // // construct stand and walk task, in priority order (index 0 = highest)
 
-    //---------------Stand---------------------------
+    //---------------Stand task---------------------------
     // kin_task_stand is a vector of pointers, so it stores the address of each task
     kin_task_stand.push_back(&task_left_contact);
     kin_task_stand.push_back(&task_right_contact);
@@ -19,12 +19,19 @@ KinWBC::KinWBC()
     kin_task_stand.push_back(&task_base_rpy);   
     kin_task_stand.push_back(&task_base_height);
 
-    //---------------Init Walk---------------------------
+    //---------------Init Walk task---------------------------
     kin_task_init_walk.push_back(&task_static_contact);
     kin_task_init_walk.push_back(&task_lift_foot);
-    kin_task_init_walk.push_back(&task_CoMXY);
+    kin_task_init_walk.push_back(&task_CoMXY);    
     kin_task_init_walk.push_back(&task_base_rpy);
     kin_task_init_walk.push_back(&task_base_height);
+
+    //---------------Walking task---------------------------
+    kin_task_walk.push_back(&task_static_contact);
+    kin_task_walk.push_back(&task_swing_leg);
+    kin_task_walk.push_back(&task_CoMXY);
+    kin_task_walk.push_back(&task_base_rpy);
+    kin_task_walk.push_back(&task_base_height);
 }
 
 void KinWBC::printTaskInfo() {
@@ -43,13 +50,26 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
     // get feedback
     updateCurrent(robot_wrapper, footPlanner);
 
-    // switch which task list gets solved based on whether walking has
-    // actually started -- kin_task_stand plants both feet (task_left/right_
-    // contact), which would fight a moving swing foot, so once gait_scheduler
-    // is in WALK, solve kin_task_init_walk (single stance foot + lift_foot)
-    // instead.
-    std::vector<Task*> &kin_task = (gait_scheduler.motionState == MotionState::WALK) ? kin_task_init_walk : kin_task_stand;
-
+    // select the task based on gait_scheduler MotionState
+    std::vector<Task*>* kin_task_ptr;
+    switch (gait_scheduler.motionState) {
+        case MotionState::WARM_UP:
+            kin_task_ptr = &kin_task_init_walk;
+            break;
+        case MotionState::WALK:
+            kin_task_ptr = &kin_task_walk;
+            break;
+        case MotionState::STAND:
+            kin_task_ptr = &kin_task_stand;
+            break;
+        case MotionState::WALK_TO_STAND:
+            kin_task_ptr = &kin_task_stand;
+            break;
+        default:
+            kin_task_ptr = &kin_task_stand;
+            break;
+    }
+    std::vector<Task*> &kin_task = *kin_task_ptr;
     // recursive null-space priority solver
     const int nv = robot_wrapper.model_nv_;
     for (size_t i = 0; i < kin_task.size(); i++)
@@ -126,6 +146,12 @@ void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacem
     task_lift_foot.dX_des = VectorXd::Zero(6);
     task_lift_foot.ddX_des = VectorXd::Zero(6);
 
+    // swing leg (6-dim: position + orientation) of the swing feet
+    task_swing_leg.X_des = VectorXd::Zero(6); // init
+    task_swing_leg.X_des.head<3>() = footPlanner_cmd.getSwingDesPos();
+    task_swing_leg.dX_des = VectorXd::Zero(6);
+    task_swing_leg.ddX_des = VectorXd::Zero(6);
+
     return;
 }
 
@@ -143,6 +169,7 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_base_rpy.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_static_contact.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_lift_foot.W = Eigen::VectorXd::Ones(nv).asDiagonal();
+    task_swing_leg.W = Eigen::VectorXd::Ones(nv).asDiagonal();
 
     // base height (task is 1-dim: z only -- J_base_W's row 2 is the base's z-row,
     // since J_base_W.block<3,3>(0,0) = I maps base linear-vel dof straight to rows 0-2)
@@ -216,13 +243,6 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_static_contact.errX = VectorXd::Zero(6);
     task_static_contact.derrX = VectorXd::Zero(6);
 
-    // lift foot (6-dim: position + orientation, full 6xnv Jacobian -- J_L/
-    // Rfeet_W are already in Pinocchio's LOCAL_WORLD_ALIGNED frame, same as
-    // task_left/right_contact/static_contact above, so no extra rotation is
-    // needed for the angular rows, unlike J_base_W). Unlike static_contact,
-    // this IS an active tracking task: errX uses the real X_des - X_cur
-    // error, not a forced Zero. Swing foot is whichever ISN'T the current
-    // stance leg -- opposite of static_contact's selection above.
     if (footPlanner.legState == LegState::RSt) // right stance -> left swinging
     {
         Eigen::Matrix3d Rcur_L = rb_wrapper.rot_L_feet_W; // diffRot's 2nd arg is a non-const ref, needs an lvalue
@@ -245,5 +265,31 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     }
     task_lift_foot.errX = task_lift_foot.X_des - task_lift_foot.X_cur;
     task_lift_foot.derrX = task_lift_foot.dX_des - task_lift_foot.dX_cur;
+
+    // task_swing_leg: same Jacobian/state setup as task_lift_foot -- the
+    // "walking" task list (kin_task_walk) uses task_swing_leg instead of
+    // task_lift_foot; both track the same swinging foot.
+    if (footPlanner.legState == LegState::RSt) // right stance -> left swinging
+    {
+        Eigen::Matrix3d Rcur_L = rb_wrapper.rot_L_feet_W;
+        task_swing_leg.X_cur = VectorXd::Zero(6);
+        task_swing_leg.X_cur.head<3>() = rb_wrapper.pos_L_feet_W;
+        task_swing_leg.X_cur.tail<3>() = diffRot(Eigen::Matrix3d::Identity(), Rcur_L);
+        task_swing_leg.dX_cur = rb_wrapper.J_Lfeet_W * rb_wrapper.dq;
+        task_swing_leg.J = rb_wrapper.J_Lfeet_W;
+        task_swing_leg.dJ = rb_wrapper.dJ_Lfeet_W;
+    }
+    else // LSt or DSt -> right swinging
+    {
+        Eigen::Matrix3d Rcur_R = rb_wrapper.rot_R_feet_W;
+        task_swing_leg.X_cur = VectorXd::Zero(6);
+        task_swing_leg.X_cur.head<3>() = rb_wrapper.pos_R_feet_W;
+        task_swing_leg.X_cur.tail<3>() = diffRot(Eigen::Matrix3d::Identity(), Rcur_R);
+        task_swing_leg.dX_cur = rb_wrapper.J_Rfeet_W * rb_wrapper.dq;
+        task_swing_leg.J = rb_wrapper.J_Rfeet_W;
+        task_swing_leg.dJ = rb_wrapper.dJ_Rfeet_W;
+    }
+    task_swing_leg.errX = task_swing_leg.X_des - task_swing_leg.X_cur;
+    task_swing_leg.derrX = task_swing_leg.dX_des - task_swing_leg.dX_cur;
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <string>
 #include "useful_math.h"
 
 #include "data_type.h"
@@ -19,20 +20,18 @@ public:
     // DataBus::LegState firstleg, legState, legStateNext;
     LegState firstleg, legState, legStateNext;
     MotionState motionState;
-    MyGaitScheduler(double tSwingIn, double dtIn);
-
-    // void dataBusRead(const DataBus &robotState);
-    // void dataBusWrite(DataBus &robotState);
-
+    // yamlPath's "gait_scheduler:" block supplies tSwing -- see
+    // config/step_planning_cf.yaml
+    MyGaitScheduler(const std::string &yamlPath, double dtIn);
     void step(JoyStickInterpreter &joyStick);
     void stop();
 	void start(JoyStickInterpreter &joystick);
     Eigen::VectorXd FLest,FRest;
     Eigen::VectorXd torJoint;
-
     bool enableNextStep;
     bool touchDown; // touch down event indicator
     int stepNumDes{1}, stepNumCur{0};
+
 private:
     Eigen::VectorXd fe_r_pos_W, fe_l_pos_W, swingStartPos_W, posHip_W, posST_W, hip_r_pos_W, hip_l_pos_W, dq;
     Eigen::VectorXd stanceStartPos_W;
@@ -40,5 +39,4 @@ private:
     Eigen::MatrixXd dyn_M, dyn_Non, J_l, J_r, dJ_l, dJ_r;
     double theta0;
     int model_nv;
-
 };

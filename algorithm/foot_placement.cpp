@@ -7,7 +7,20 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 */
 #include "foot_placement.h"
 #include "bezier_1D.h"
+#include "data_type.h"
 #include <cmath>
+#include <yaml-cpp/yaml.h>
+
+FootPlacement::FootPlacement(const std::string &yamlPath)
+{
+    YAML::Node root = YAML::LoadFile(yamlPath);
+    const YAML::Node &fp = root["foot_placement"];
+    stepHeight = fp["stepHeight"].as<double>();
+    hip_width  = fp["hip_width"].as<double>();
+    xOff_L     = fp["x_offset"].as<double>();
+    yOff_L     = fp["y_offset"].as<double>();
+    zOff_W     = fp["z_offset"].as<double>();
+}
 
 void FootPlacement::updateFromRobot(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick)
 {
@@ -56,39 +69,62 @@ void FootPlacement::updateFromRobot(const RobotWrapper &rb_wrapper, const MyGait
         0, 0, 1;
     double side = (curLegState == LegState::LSt) ? -1.0 : 1.0; // LSt (left stance) -> swing leg is right -> right hip sits on the -y side
     hipPos_W = base_pos + Rz * Eigen::Vector3d(0, side * hip_width / 2.0, 0);
+
+    if (gait_scheduler.motionState == MotionState::WARM_UP)
+    {
+        this->inPlaceOnly = true;
+    }
+    else if (gait_scheduler.motionState == MotionState::WALK) {
+        this->inPlaceOnly = false;
+    }
 }
 
-void FootPlacement::StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick)
+void FootPlacement::StepSwingPlanning(const RobotWrapper &rb_wrapper,
+                                        const MyGaitScheduler &gait_scheduler,
+                                         const JoyStickInterpreter &joyStick,
+                                        const CP_Planning &cp_planner)
 {
     updateFromRobot(rb_wrapper, gait_scheduler, joyStick);
-    Eigen::Matrix<double, 4, 1> b;
-    b.setZero();
-    Eigen::Matrix<double, 1, 4> xNow;
-    xNow << 1, phi, pow(phi, 2), pow(phi, 3);
 
-    Eigen::Matrix3d KP, Rz;
-    KP.setZero();
-    KP(0, 0) = kp_vx;
-    KP(1, 1) = kp_vy;
-    KP(2, 2) = 0;
-    Rz << cos(yawCur), -sin(yawCur), 0,
-        sin(yawCur), cos(yawCur), 0,
-        0, 0, 1;
-    KP = Rz * KP * Rz.transpose();
 
-    // for linear velocity
-    posDes_W = hipPos_W + KP * (desV_W - curV_W) * (-1) + 0.5 * tSwing * curV_W +
-               curV_W * (1 - phi) * tSwing;
+    // Eigen::Matrix<double, 4, 1> b;
+    // b.setZero();
+    // Eigen::Matrix<double, 1, 4> xNow;
+    // xNow << 1, phi, pow(phi, 2), pow(phi, 3);
 
-    // for angular veloctity
-    double thetaF;
-    thetaF = yawCur + theta0 + omegaZ_W * (1 - phi) * tSwing + 0.5 * omegaZ_W * tSwing + kp_wz * (omegaZ_W - desWz_W);
-    posDes_W(0) += 0.5 * hip_width * (cos(thetaF) - cos(yawCur + theta0));
-    posDes_W(1) += 0.5 * hip_width * (sin(thetaF) - sin(yawCur + theta0));
+    // Eigen::Matrix3d KP, Rz;
+    // KP.setZero();
+    // KP(0, 0) = kp_vx;
+    // KP(1, 1) = kp_vy;
+    // KP(2, 2) = 0;
+    // Rz << cos(yawCur), -sin(yawCur), 0,
+    //     sin(yawCur), cos(yawCur), 0,
+    //     0, 0, 1;
+    // KP = Rz * KP * Rz.transpose();
 
-    double xOff_L = -0.07;  //-0.01; // foot-end position offset in x direction in body frame
-    double yOff_L = 0.04;   // 0.01; // foot-end position offset in y direction in body frame, positive for moving the leg inside
-    double zOff_W = -0.035; // foot-end position offset in z direction in world frame
+    // Standard Raibert heuristic: p_foot = p_hip + 0.5*T*v_des + Kp*(v_cur - v_des)
+    // hipPos_W is re-evaluated every tick from the current base position, so
+    // hip drift during the remaining swing is already captured — the extra
+    // curV_W*(1-phi)*tSwing look-ahead that was here caused double-counting
+    // and made the foot target 3× larger than the CP step advance.
+
+    // posDes_W = hipPos_W + KP * (curV_W - desV_W) + 0.5 * tSwing * desV_W;
+
+    double step_length = cp_planner.step_length;
+
+    // posDes_W[0] = hipPos_W[0] + cp_planner.cxi_x_;
+    // posDes_W[1] = hipPos_W[1] + cp_planner.cxi_y_;
+
+    posDes_W[0] = cp_planner.cxi_x_;
+    posDes_W[1] = hipPos_W[1] ;
+
+    // // for angular veloctity
+    // double thetaF;
+    // thetaF = yawCur + theta0 + omegaZ_W * (1 - phi) * tSwing + 0.5 * omegaZ_W * tSwing + kp_wz * (omegaZ_W - desWz_W);
+    // posDes_W(0) += 0.5 * hip_width * (cos(thetaF) - cos(yawCur + theta0));
+    // posDes_W(1) += 0.5 * hip_width * (sin(thetaF) - sin(yawCur + theta0));
+
+    // foot-end placement offsets (loaded from YAML via constructor)
 
     posDes_W(2) = base_pos(2) - legLength + zOff_W;
 
@@ -97,17 +133,20 @@ void FootPlacement::StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGa
     {
         xOff_W = cos(yawCur) * xOff_L - sin(yawCur) * yOff_L;
         yOff_W = sin(yawCur) * xOff_L + cos(yawCur) * yOff_L;
+        posDes_W[1] = - this->hip_width/2;
         // yOff_W = 0.05;
     }
     else if (legState == LegState::RSt)
     {
         xOff_W = cos(yawCur) * xOff_L - sin(yawCur) * (-yOff_L);
         yOff_W = sin(yawCur) * xOff_L + cos(yawCur) * (-yOff_L);
+        posDes_W[1] = this->hip_width/2;
         // yOff_W = -0.05;
     }
 
-    posDes_W(0) += xOff_W;
-    posDes_W(1) += yOff_W;
+    // posDes_W(0) += xOff_W;
+    // posDes_W(1) += yOff_W;
+
     //
     //    double yOff=0.005; // positive for moving the leg inside
     //    if (legState==LegState::LSt)
@@ -123,41 +162,42 @@ void FootPlacement::StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGa
         pDesCur[0] = posStart_W(0);
         pDesCur[1] = posStart_W(1);
     }
-    else if (phi < 1.0)
+    else if (phi <= 1.0)
     {
+        
         pDesCur[0] = posStart_W(0) + (posDes_W(0) - posStart_W(0)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi));
         pDesCur[1] = posStart_W(1) + (posDes_W(1) - posStart_W(1)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi));
     }
 
-    if (phi >= 0.98)
-    {
-        zStretch += -0.002;
+    // if (phi >= 1)
+    // {
+    //     zStretch += -0.002;
 
-        // std::cout << "---------------- " << zStretch << std::endl;
-    }
-    else
-        zStretch = 0;
-    if (zStretch < -0.05)
-    {
-        zStretch = -0.05;
-        // finish_Stretch = true;
-    }
+    //     // std::cout << "---------------- " << zStretch << std::endl;
+    // }
+    // else
+    //     zStretch = 0;
+    // if (zStretch < -0.05)
+    // {
+    //     zStretch = -0.05;
+    //     // finish_Stretch = true;
+    // }
 
     // if (phi < 1e-3)
     // {
     //     finish_Stretch = false;
     // }
 
-    // pDesCur[2] = posStart_W(2) + stepHeight * 0.5 * (1 - cos(2 * 3.1415 * phi)) + (posDes_W(2) - posStart_W(2)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi))+ zStretch;
-    double zBeforeStretch = posStart_W(2) + Trajectory(0.2, stepHeight, posDes_W(2) - posStart_W(2));
+    pDesCur[2] = posStart_W(2) + stepHeight * 0.5 * (1 - cos(2 * 3.1415 * phi)) + (posDes_W(2) - posStart_W(2)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi))+ zStretch;
+    // double zBeforeStretch = posStart_W(2) + Trajectory(0.2, stepHeight, posDes_W(2) - posStart_W(2));
     // Never plan the swing foot below ground -- clamp zStretch itself
     // (rather than the final sum) so it can't dig past zBeforeStretch's own
     // floor. Clamping the sum post-hoc instead would flatten pDesCur[2] at 0
     // while zStretch keeps accumulating underneath unseen, then jump when
     // the next cycle's reset suddenly exposes that accumulated offset --
     // clamping zStretch here keeps it (and so the whole curve) continuous.
-    zStretch = std::max(zStretch, -zBeforeStretch);
-    pDesCur[2] = zBeforeStretch + zStretch;
+    // zStretch = std::max(zStretch, -zBeforeStretch);
+    // pDesCur[2] = zBeforeStretch + zStretch;
 }
 
 double FootPlacement::Trajectory(double phase, double hei, double len)

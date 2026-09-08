@@ -2,10 +2,11 @@
 #include "data_type.h"
 #include <cmath>
 
-CP_Planning::CP_Planning(const double dtIn, const double zIn)
+CP_Planning::CP_Planning(const double dtIn, const double zIn, double wd_hipIn)
 {
     this->dt_ = dtIn;
     this->zc_ = zIn;
+    this->wd_hip = wd_hipIn;
     this->w = std::sqrt(this->g/this->zc_);
     xc_ = 0; yc_= 0;
     d_xc_ = d_yc_ = 0;
@@ -55,6 +56,89 @@ void CP_Planning::computeCP (double zmp_x, double zmp_y)
     this->cxi_y_ += d_cxi_y*dt_;
 }
 
+void CP_Planning::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpreter &joyStick)
+{
+    // gait_scheduler: provide the gait phase variable
+    // joyStick: provide the walking velocity
+
+    double vx = joyStick.vx_W; // forward walking velocity
+    t_swing = gait_scheduler.tSwing;
+    // step_length must use the same formula as the Raibert foot placement heuristic
+    // (foot_placement.cpp: posDes_W = hipPos_W + 0.5*T*v_des + ...) so that the
+    // CP CoM reference advances by the same amount per step as the foot lands forward.
+    // Using vx/T here instead caused a 0.1 m/step CoM-vs-foot mismatch that accumulated.
+    this->step_length = 0.5 * t_swing * vx;
+    auto phi = gait_scheduler.phi; // phase variable
+
+    if (this->step_length >= 0.1) // saturation: max step length 0.2 m
+    {
+        this->step_length = 0.1;
+    }
+
+
+    // Planning desired Capture Point
+    if (leg_state_ == LegState::DSt && gait_scheduler.legState == LegState::LSt)
+    {
+        cxi_x0_ = this->cxi_x_;
+        cxi_y0_ = this->cxi_y_;
+
+        cxi_xd_ += step_length; // first step: advance CoM reference same as steady-state steps
+        cxi_yd_ = -0.5*wd_hip;
+    }
+
+    if (leg_state_ == LegState::DSt && gait_scheduler.legState == LegState::RSt)
+    {
+        cxi_x0_ = this->cxi_x_;
+        cxi_y0_ = this->cxi_y_;
+
+        cxi_xd_ += step_length; // first step: advance CoM reference same as steady-state steps
+        cxi_yd_ = 0.5*wd_hip;
+    }
+
+    if (leg_state_ == LegState::LSt && gait_scheduler.legState == LegState::RSt)
+    {
+        cxi_x0_ = this->cxi_x_;
+        cxi_y0_ = this->cxi_y_;
+
+        cxi_xd_ += step_length;
+        cxi_yd_ = 0.5*wd_hip;
+    }
+
+
+    if (leg_state_ == LegState::RSt && gait_scheduler.legState == LegState::LSt)
+    {
+        cxi_x0_ = this->cxi_x_;
+        cxi_y0_ = this->cxi_y_;
+
+        cxi_xd_ += step_length;
+        cxi_yd_ = -0.5*wd_hip;
+    }
+
+    // Compute desired ZMP
+    const double e = 2.718281828459;
+    if (phi < crossoverFraction)
+    {
+        const double b = std::pow(e, this->w * crossoverFraction * this->t_swing);
+        px_d_ = (cxi_xd_ - b*cxi_x0_)/(1-b);
+        py_d_ = (cxi_yd_ - b*cxi_y0_)/(1-b);
+    }
+    else
+    {
+        px_d_ = cxi_xd_;
+        py_d_ = cxi_yd_;
+    }
+
+    // compute Capture Point
+    this->computeCP(px_d_, py_d_);
+
+    // calculate CoM
+    this->computeCoM(cxi_x_, cxi_y_);
+
+    this->leg_state_ = gait_scheduler.legState;
+
+    return;
+}
+
 void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
 {
     // phi is the phase variable
@@ -67,7 +151,7 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = -wd_hip;
+        cxi_yd_ = -0.5*wd_hip;
     }
 
     if (leg_state_ == LegState::DSt && gait_scheduler.legState == LegState::RSt)
@@ -76,7 +160,7 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = wd_hip;
+        cxi_yd_ = 0.5*wd_hip;
     }
 
     if (leg_state_ == LegState::LSt && gait_scheduler.legState == LegState::RSt)
@@ -85,7 +169,7 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = wd_hip;
+        cxi_yd_ = 0.5*wd_hip;
     }
 
 
@@ -95,7 +179,7 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ = 0;
-        cxi_yd_ = -wd_hip;
+        cxi_yd_ = -0.5*wd_hip;
     }
 
     // calculate ZMP -- boundary-value target arrival is aimed at

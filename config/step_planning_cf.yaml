@@ -1,0 +1,13 @@
+# Tunable parameters for the step-planning pipeline (MyGaitScheduler +
+# FootPlacement). Read via yaml-cpp in each class's constructor -- see
+# algorithm/my_gait_scheduler.cpp / algorithm/foot_placement.cpp.
+gait_scheduler:
+  tSwing: 1.2 # swing phase duration, seconds
+
+foot_placement:
+  stepHeight: 0.05 # peak swing-foot lift height, meters
+  hip_width: 0.334 # lateral hip separation, meters -- must match computeInitial_Stand()'s width_hips (robot_wrapper.cpp)
+  x_offset: 0.0  # foot-end position offset in x direction, body frame (forward)
+  y_offset: 0.0  # foot-end position offset in y direction, body frame (lateral, positive = inward)
+  z_offset: 0.0 # foot-end position offset in z direction, world frame (vertical)
+

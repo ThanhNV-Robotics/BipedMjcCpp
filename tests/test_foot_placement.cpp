@@ -15,11 +15,11 @@ int main ()
     cout << "Test foot placement" << endl;
 
     const double dt = 0.001; // sampling time
-    const double tSwingIn = 1;
+    const std::string stepPlanningCfPath = "config/step_planning_cf.yaml";
 
     // init classes
-    MyGaitScheduler gaitScheduler_(tSwingIn, dt);
-    FootPlacement footPlacement_;
+    MyGaitScheduler gaitScheduler_(stepPlanningCfPath, dt);
+    FootPlacement footPlacement_(stepPlanningCfPath);
     cout << "Created a gait scheduler" << endl;
     const int model_nv = 12;
     DataBus RobotState(model_nv); // 12 = model, init its own motion state to Stand

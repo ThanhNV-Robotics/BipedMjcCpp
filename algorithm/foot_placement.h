@@ -9,10 +9,12 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #pragma once
 
 #include <Eigen/Dense>
+#include <string>
 #include "data_type.h"
 #include "robot_wrapper.h"
 #include "my_gait_scheduler.h"
 #include "joystick_interpreter.h"
+#include "CP_Planning.h"
 
 class FootPlacement
 {
@@ -21,8 +23,16 @@ public:
     double legLength{1};
     double stepHeight{0.05};
     double hip_width{0.334}; // fixed geometry constant (was DataBus-sourced runtime state); matches computeInitial_Stand()'s width_hips
+    // foot-end placement offsets, in body frame (x/y) and world frame (z).
+    // Loaded from yaml foot_placement: x_offset / y_offset / z_offset.
+    double xOff_L{0.0};  // body-frame forward offset
+    double yOff_L{0.0};   // body-frame lateral offset (positive = inward)
+    double zOff_W{0.0}; // world-frame vertical offset
     double phi{0};      // phase varialbe for trajectory generation, must between 0 and 1
     double tSwing{0.4}; // swing time
+    // yamlPath's "foot_placement:" block supplies stepHeight/hip_width/offsets --
+    // see config/step_planning_cf.yaml
+    FootPlacement(const std::string &yamlPath);
     Eigen::Vector3d posStart_W, posDes_W, hipPos_W;
     Eigen::Vector3d desV_W, curV_W;
     double desWz_W;
@@ -36,7 +46,7 @@ public:
     bool inPlaceOnly{false};
 
     double Trajectory(double phase, double des1, double des2);
-    void StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick);
+    void StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick,const CP_Planning &cp_planner);
 
     void updateFromRobot(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick);
     Eigen::Vector3d getSwingDesPos() const { return Eigen::Vector3d(pDesCur[0], pDesCur[1], pDesCur[2]); }

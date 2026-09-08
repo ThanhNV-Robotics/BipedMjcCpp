@@ -16,6 +16,7 @@
 
 const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
+const std::string STEP_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
 
 // Pure forward-kinematics check of KinWBC::computeWBC_IK() -- no MuJoCo
 // physics (mj_step) involved at all. Each iteration: recompute Jacobians/
@@ -39,12 +40,11 @@ int main()
     RobotWrapper robot_wrapper(URDF_PATH);
     KinWBC kin_wbc;
     JoyStickInterpreter joyStick(kin_wbc.dt);
-    MyGaitScheduler gaitScheduler(1.2, kin_wbc.dt);
-    FootPlacement footPlanner; // default-constructed: computeWBC_IK's stand
-                                // tasks don't currently read from it at all
+    MyGaitScheduler gaitScheduler(STEP_PLANNING_CF_PATH, kin_wbc.dt);
+    FootPlacement footPlanner(STEP_PLANNING_CF_PATH);
     const double dt = 0.001;
     const double zc = 0.35;
-    CP_Planning cp_planning(dt, zc);
+    CP_Planning cp_planning(dt, zc, footPlanner.hip_width);
 
     // per-joint MuJoCo qpos/qvel address, looked up by name in
     // robot_wrapper.jointNames_'s order (Pinocchio/URDF order) -- matches
