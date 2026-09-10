@@ -8,6 +8,11 @@
 
 
 #include <pinocchio/multibody/fwd.hpp>
+// Forward declaration -- avoids a circular include since MyStateEstimator.h
+// itself includes robot_wrapper.h. Only a reference is used in updateRobotState(),
+// so a forward declaration is sufficient here; the full header is included in
+// robot_wrapper.cpp where the implementation needs the complete type.
+class StateEstimator;
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/frames.hpp"
@@ -89,9 +94,11 @@ class RobotWrapper {
 
         void printFixedBaseModelInfo ();
         
-        void updateRobotState (RobotConfiguration rb_cf, RobotSpatialVelocity rb_v);
+        void updateRobotState (StateEstimator &state_estimator);
+        void updateRobotState (RobotConfiguration q, RobotSpatialVelocity v);
         void computeKin ();
         void computeDyn ();
+        std::vector<double> getMaxTorque();
 
         // advance this->q by a tangent-space step delta_q (dim model_nv_),
         // e.g. a differential-IK correction -- uses pinocchio::integrate so

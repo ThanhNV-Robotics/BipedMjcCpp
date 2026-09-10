@@ -229,26 +229,8 @@ void StateEstimator::update(const RobotSensor &rb_sensor, RobotWrapper &rb_wrapp
   // force to symmetry
   this->P_ = 0.5 * (this->P_ + this->P_.transpose());
 
-  // -----------------------------------------------
-  // Propagate estimated state to outputs
-  //------------------------------------------------
-
-  RobotConfiguration Out_rb_cf_est;
-  RobotSpatialVelocity Out_rb_vel_est;
-
-  Out_rb_cf_est.robot_na = 12;
-  Out_rb_cf_est.pos_b_W = this->xhat_.segment(0, 3); // KF-estimated base position (world frame)
-  Out_rb_cf_est.quat_b_W = imu_quat; // orientation isn't part of the KF state, comes straight from the IMU
-  Out_rb_cf_est.qj = this->motor_pos_mea_; // joint position is measured directly, not filtered
-
-  Out_rb_vel_est.robot_nv = 12;
-  Out_rb_vel_est.vb_W = this->xhat_.segment(3, 3); // KF-estimated base linear velocity (world frame)
-  Out_rb_vel_est.wb_W = R_wb * this->imu_angular_vel_mea_; // gyro reading rotated local->world, to match vb_W's frame
-  Out_rb_vel_est.dq_j = this->motor_vel_mea_; // joint velocity is measured directly, not filtered
-
-  // update robot wrapper internal states from the estimated states
-
-  rb_wrapper.updateRobotState(Out_rb_cf_est, Out_rb_vel_est);
+  // update robot wrapper internal states from the estimated states.
+  rb_wrapper.updateRobotState(*this);
 
 }
 
@@ -308,24 +290,24 @@ Eigen::Matrix<double, 4, 1> StateEstimator::getImuquaternion() {
   return this->imu_quaternion_;
 }
 
-Eigen::Matrix<double, 12, 1> StateEstimator::get_qj() // return joint position
+Eigen::VectorXd StateEstimator::get_qj() // return joint position
 {
   return this->motor_pos_mea_;
 }
-Eigen::Matrix<double, 12, 1> StateEstimator::get_qjd() // return joint velocity
+Eigen::VectorXd StateEstimator::get_qjd() // return joint velocity
 {
   return this->motor_vel_mea_;
 }
 
-Eigen::Matrix<double, 3, 1> StateEstimator::getBasePosEst() {
+Eigen::Vector3d StateEstimator::getBasePosEst() {
   return this->xhat_.segment(0, 3);
 }
 
-Eigen::Matrix<double, 3, 1> StateEstimator::getBaseVelEst() {
+Eigen::Vector3d StateEstimator::getBaseVelEst() {
   return this->xhat_.segment(3, 3);
 }
 
-Eigen::Matrix<double, 3, 1> StateEstimator::getAccelBiasEst() {
+Eigen::Vector3d StateEstimator::getAccelBiasEst() {
   return this->xhat_.segment(this->dimState_ - 3, 3);
 }
 
@@ -339,4 +321,33 @@ Eigen::Matrix<double, 2, 1> StateEstimator::getTouchSensorValue() {
 
 std::vector<bool> StateEstimator::getContactFlags() {
   return this->contact_flag;
+}
+
+RobotConfiguration StateEstimator::getEstimatedRobotConfiguration() {
+  RobotConfiguration Out_rb_cf_est(this->na_);
+  Out_rb_cf_est.pos_b_W = this->xhat_.segment(0, 3); // KF-estimated base position (world frame)
+  // imu_quaternion_ is stored as (x,y,z,w); Eigen::Quaterniond ctor takes (w,x,y,z)
+  Out_rb_cf_est.quat_b_W = Quat(imu_quaternion_(3),  // w
+                                 imu_quaternion_(0),  // x
+                                 imu_quaternion_(1),  // y
+                                 imu_quaternion_(2)); // z
+  Out_rb_cf_est.qj = this->motor_pos_mea_; // joint position is measured directly, not filtered
+  return Out_rb_cf_est;
+}
+
+RobotSpatialVelocity StateEstimator::getEstimatedRobotSpatialVelocity() {
+  RobotSpatialVelocity Out_rb_vel_est;
+  Out_rb_vel_est.robot_nv = this->na_;
+  Out_rb_vel_est.vb_W = this->xhat_.segment(3, 3); // KF-estimated base linear velocity (world frame)
+  // imu_angular_vel_mea_ is in the local (IMU/base) frame; rotate to world frame.
+  // R_wb = rotation from base to world = Quaterniond(imu_quaternion_).toRotationMatrix()
+  // Note: imu_quaternion_ is (x,y,z,w), so construct Quat(w,x,y,z).
+  Eigen::Matrix3d R_wb = Quat(imu_quaternion_(3),   // w
+                               imu_quaternion_(0),   // x
+                               imu_quaternion_(1),   // y
+                               imu_quaternion_(2))   // z
+                             .toRotationMatrix();
+  Out_rb_vel_est.wb_W = R_wb * this->imu_angular_vel_mea_; // rotated to world frame
+  Out_rb_vel_est.dq_j = this->motor_vel_mea_; // joint velocity is measured directly, not filtered
+  return Out_rb_vel_est;
 }

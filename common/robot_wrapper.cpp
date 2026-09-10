@@ -1,9 +1,12 @@
 #include "robot_wrapper.h"
+#include "MyStateEstimator.h" // full definition needed by updateRobotState() impl
 #include "data_type.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
+#include <iterator>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/multibody/fwd.hpp>
+#include <vector>
 
 //  Openning note: 
 //  For Pinocchio: The base translation part is expressed in the parent frame (here the world coordinate system)
@@ -150,27 +153,34 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     }
 }
 
-void RobotWrapper::updateRobotState (RobotConfiguration q, RobotSpatialVelocity dq)
+void RobotWrapper::updateRobotState (StateEstimator &state_estimator)
+{
+    // Delegate to the RobotConfiguration/RobotSpatialVelocity overload so the
+    // state-packing logic lives in exactly one place.
+    updateRobotState(state_estimator.getEstimatedRobotConfiguration(),
+                     state_estimator.getEstimatedRobotSpatialVelocity());
+}
+
+void RobotWrapper::updateRobotState (RobotConfiguration q_in, RobotSpatialVelocity v_in)
 {
     /**
-    * @brief update internal configuration vector q and velocity dq
-    *  q = [base_position_in_world, base_quaternion_in_world, joint_position], dim = 3 + 4 +12 = nq
-    *  dq = [base_linear_vel_in_World, base_angular_vel_in_world, joint vel], dim nv
+    * @brief Pack q_in / v_in into Pinocchio's internal q/dq vectors.
+    *  q  = [base_pos_W(3), base_quat_W(x,y,z,w)(4), joint_pos(na)]    dim = nq
+    *  dq = [base_lin_vel_local(3), base_ang_vel_local(3), joint_vel(na)]  dim = nv
+    *  Velocities are stored in the LOCAL base frame (Pinocchio convention);
+    *  v_in carries them in the WORLD frame, so we rotate with quat^-1.
     */
 
-    // update position
-    this->q.segment<3>(0) = q.pos_b_W; // base pos
-    this->q.segment<4>(3) = q.quat_b_W.coeffs(); // base quaternion
-    this->q.segment(7, this->model_na_) = q.qj; // joint position
+    // position
+    this->q.segment<3>(0) = q_in.pos_b_W;
+    // Pinocchio's quaternion block order is (x,y,z,w) -- Quaterniond::coeffs() returns exactly that
+    this->q.segment<4>(3) = q_in.quat_b_W.coeffs();
+    this->q.segment(7, this->model_na_) = q_in.qj;
 
-    // for base linear and angular velocity, we have to transform to local base frame
-    // because in pinocchio v = [local_base_velocity_linear, local_base_velocity_angular, joint_velocities]
-    
-    // update base velocity
-    this->dq.segment<3>(0) = q.quat_b_W.inverse() * dq.vb_W; // base linear velocity, converted to local base frame
-    this->dq.segment<3>(3) = q.quat_b_W.inverse() * dq.wb_W; // base angular velocity, convert to local frame also
-
-    this->dq.segment(6, this->model_na_) = dq.dq_j; // joint velocity
+    // velocity: rotate world-frame vectors into the local base frame
+    this->dq.segment<3>(0) = q_in.quat_b_W.inverse() * v_in.vb_W;
+    this->dq.segment<3>(3) = q_in.quat_b_W.inverse() * v_in.wb_W;
+    this->dq.segment(6, this->model_na_) = v_in.dq_j;
 }
 
 void RobotWrapper::integrateConfig (const VectorXd &delta_q)
@@ -532,4 +542,14 @@ VectorXd RobotWrapper::computeInitial_Stand(const double base_height)
     auto resLeg = this->computeInK_Leg(fe_l_rot_des, fe_l_pos_L_des, fe_r_rot_des, fe_r_pos_L_des);
 
     return resLeg.jointPosRes;
+}
+
+std::vector<double> RobotWrapper::getMaxTorque()
+{
+    std::vector<double> joint_torque_limit;
+    for (int i = 0; i < this->model_na_; i++)
+    {
+        joint_torque_limit.push_back(this->pin_model_.effortLimit.tail(this->model_na_)[i]);
+    }
+    return joint_torque_limit;
 }

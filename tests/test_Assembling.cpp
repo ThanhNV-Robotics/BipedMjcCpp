@@ -11,12 +11,18 @@
 #include "useful_math.h"
 #include "MyStateEstimator.h"
 #include "PVT_ctrl.h"
+#include "KinWBC.h"
+#include "DynWBC.h"
+#include "joystick_interpreter.h"
+#include "foot_placement.h"
+#include "my_gait_scheduler.h"
 
 using namespace std;
 
 const string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
 const string FREE_JOINT_NAME = "floating_base_joint";
+const std::string STEP_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
 char loadError[1024] = ""; // character array, size 1024
 
 int main()
@@ -41,7 +47,14 @@ int main()
     // StateEstimator, PVT_Ctr)
     //************************************************************* */
     RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
+    KinWBC kin_wbc;
     RobotSensor rb_sensors(mj_model->na);
+    JoyStickInterpreter joyStick(kin_wbc.dt);
+    MyGaitScheduler gaitScheduler(STEP_PLANNING_CF_PATH, kin_wbc.dt);
+    FootPlacement footPlanner(STEP_PLANNING_CF_PATH);
+    const double dt = kin_wbc.dt;
+    const double zc = 0.5;
+    CP_Planning cp_planner(dt, zc, footPlanner.hip_width);
 
     const std::string joint_ctrl_config_path = "config/12dof_joint_config.yaml";
     UIctr uiController(mj_model, mj_data);   // UI control for Mujoco
@@ -52,6 +65,7 @@ int main()
 
     PVT_Ctr pvtCtr(mj_model->opt.timestep, joint_ctrl_config_path.c_str()); // PVT joint control
     StateEstimator state_estimator(mj_model->opt.timestep, true);
+    KinWBC kinWBC_solver;
 
     const double init_base_height = 0.75;
     VectorXd qIniDes = robot_wrapper.computeInitial_Stand(init_base_height);
