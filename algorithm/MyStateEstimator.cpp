@@ -133,8 +133,8 @@ void StateEstimator::update(const RobotSensor &rb_sensor, RobotWrapper &rb_wrapp
   // scaling ramps continuously through touchdown/liftoff rather than jumping
   double contactConf[2] = {contactConfidence(this->touch_lf), contactConfidence(this->touch_rf)};
   // keep the boolean flag for getContactFlags()/external reporting
-  this->contact_flag[0] = contactConf[0] > 0.5;
-  this->contact_flag[1] = contactConf[1] > 0.5;
+  this->contact_flag_[0] = contactConf[0] > 0.5;
+  this->contact_flag_[1] = contactConf[1] > 0.5;
 
   Eigen::Quaterniond imu_quat(this->imu_quaternion_(3), this->imu_quaternion_(0),
                               this->imu_quaternion_(1), this->imu_quaternion_(2)); // (w,x,y,z)
@@ -234,34 +234,6 @@ void StateEstimator::update(const RobotSensor &rb_sensor, RobotWrapper &rb_wrapp
 
 }
 
-void StateEstimator::getSensorMeansurement(DataBus &Data) {
-  // assign from DataBus
-  // motor_pos_mea_ is Eigen::Matrix but Data.motor_pos_cur is
-  // std::vector<double> so we have to use Eigen::Map here.
-  // Data.motors_pos_cur/vel_cur/tor_cur are ordered per
-  // MJ_Interface::JointName (arms, head, waist, then the 12 leg joints), and
-  // this 12-dof estimator only tracks the legs, so we map the last 12 entries.
-  this->motor_pos_mea_ = Eigen::Map<const Eigen::Matrix<double, 12, 1>>(
-      Data.motors_pos_cur.data() + Data.motors_pos_cur.size() - 12);
-  this->motor_vel_mea_ = Eigen::Map<const Eigen::Matrix<double, 12, 1>>(
-      Data.motors_vel_cur.data() + Data.motors_vel_cur.size() - 12);
-  this->motor_tor_mea_ = Eigen::Map<const Eigen::Matrix<double, 12, 1>>(
-      Data.motors_tor_cur.data() + Data.motors_tor_cur.size() - 12);
-
-  this->imu_acceleration_mea_ = Eigen::Map<Eigen::Vector3d>(Data.baseAcc);
-  this->imu_angular_vel_mea_ = Eigen::Map<Eigen::Vector3d>(Data.baseAngVel);
-  auto base_quat = Data.eul2quat(Data.rpy[0], Data.rpy[1], Data.rpy[2]);
-  this->imu_quaternion_ << base_quat.x(), base_quat.y(), base_quat.z(),
-      base_quat.w();
-
-  // foot position and velocity computed from forward kinematics
-  this->footEndPos_ << Data.fe_l_pos_L, Data.fe_r_pos_L;
-  this->footEndVel_ << Data.fe_l_vel_L, Data.fe_r_vel_L;
-
-  this->touch_lf = Data.touch_lf; // get touch sensor meansurement
-  this->touch_rf = Data.touch_rf;
-}
-
 void StateEstimator::getSensorMeansurement(const RobotSensor &rb_sensor, RobotWrapper &robot_wrapper) {
   // assign from RobotSensor (mirrors the DataBus overload above, minus the
   // touch sensor and foot FK-derived measurements RobotSensor doesn't carry)
@@ -320,7 +292,7 @@ Eigen::Matrix<double, 2, 1> StateEstimator::getTouchSensorValue() {
 }
 
 std::vector<bool> StateEstimator::getContactFlags() {
-  return this->contact_flag;
+  return this->contact_flag_;
 }
 
 RobotConfiguration StateEstimator::getEstimatedRobotConfiguration() {
@@ -350,4 +322,16 @@ RobotSpatialVelocity StateEstimator::getEstimatedRobotSpatialVelocity() {
   Out_rb_vel_est.wb_W = R_wb * this->imu_angular_vel_mea_; // rotated to world frame
   Out_rb_vel_est.dq_j = this->motor_vel_mea_; // joint velocity is measured directly, not filtered
   return Out_rb_vel_est;
+}
+
+LegState StateEstimator::getContactState()
+{
+  if (this->contact_flag_[0] && this->contact_flag_[1])
+    return DSt;
+  else if (this->contact_flag_[0])
+    return LSt;
+  else if (this->contact_flag_[1])
+    return RSt;
+  else
+    return DSt; // fallback when neither foot is in contact (e.g., flight phase)
 }

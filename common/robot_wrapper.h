@@ -54,7 +54,13 @@ class RobotWrapper {
 
         //*********************************************** */
         // configuration space
+        // TODO: Move q, dq, ddq to private once test files are refactored to not write to them directly.
         VectorXd q, dq, ddq;  //note for dq:  dq = [local_base_velocity_linear, local_base_velocity_angular, joint_velocities]
+
+        // Read-only accessors
+        const VectorXd& getQ() const { return q; }
+        const VectorXd& getDq() const { return dq; }
+        const VectorXd& getDdq() const { return ddq; }
 
         // computed Jacobian matrix, in World frame
         MatrixXd J_base_W, J_Lfeet_W, J_Rfeet_W;

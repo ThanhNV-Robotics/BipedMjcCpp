@@ -97,7 +97,6 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
 
     out_delta_q = kin_task.back()->delta_q;
     out_dq = kin_task.back()->dq;
-
     return;
 
 }

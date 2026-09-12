@@ -20,6 +20,7 @@ const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
 const std::string YAML_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
 const std::string YAML_WBC_DYN_CF_PATH = "config/12dof_joint_config.yaml";
+const std::string QP_WBC_CF_PATH = "config/qp_config.yaml";
 
 int main()
 {
@@ -33,7 +34,7 @@ int main()
     mjData *mj_data = mj_makeData(mj_model);
 
     RobotWrapper robot_wrapper(URDF_PATH);
-    DynWBC dyn_wbc (YAML_WBC_DYN_CF_PATH, robot_wrapper, true);
+    DynWBC dyn_wbc (YAML_WBC_DYN_CF_PATH,QP_WBC_CF_PATH, robot_wrapper, true);
 
     
     return 0;

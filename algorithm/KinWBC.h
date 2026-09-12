@@ -52,10 +52,11 @@ public:
     std::vector<Task*> kin_task_walk; //forward walking
     std::vector<Task*> kin_task_init_walk; // init walking task 
     // std::vector<Task> kin_task_walk;
-    Eigen::VectorXd out_delta_q, out_dq, out_ddq;
+    VectorXd out_delta_q, out_dq, out_ddq;
 
     const double dt = 0.001; // sampling time
 
+    
     void printTaskInfo();
     void updateReference(const JoyStickInterpreter& joyStick, FootPlacement& footPlanner, const CP_Planning& cp_planning); // get referece from task planner
     void updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement& footPlanner); // update current task space estimation

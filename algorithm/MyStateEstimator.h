@@ -13,7 +13,6 @@ class StateEstimator {
 public:
   StateEstimator(double dt, bool verbose); // Constructor, input: sampling time dt
 
-  void getSensorMeansurement(DataBus &Data); // get sensor measurement from mujoco simulator
   // robot_wrapper is used to compute foot position/velocity in the base
   // frame via forward kinematics, since RobotSensor only carries raw
   // actuator/IMU sensor data (unlike DataBus, which already has fe_l/r_pos/vel_L precomputed)
@@ -43,11 +42,7 @@ public:
   // instead of at the origin -- there's no absolute-position sensor for the
   // filter to otherwise correct that from quickly
   void setBasePosEst(const Eigen::Matrix<double, 3, 1> &pos);
-  // Eigen::Matrix<double, 6,1> get_qb(); // return base pose (position, rpy)
-  // Eigen::Matrix<double, 6,1> get_qbd(); // return base linear velocity and
-
-  // for debug only
-  //   void setContactFlg (bool L_contact, bool R_contact);
+  LegState getContactState();
 
 private:
   // smooth (sigmoid) contact confidence in [0,1] from a touch-sensor reading,
@@ -67,7 +62,7 @@ private:
   Eigen::Vector3d base_pos_est_, base_linearVel_est_;
 
   double touch_lf{0}, touch_rf{0}; //touch sensor value (normal reaction force)
-  std::vector<bool> contact_flag = {true, true};
+  std::vector<bool> contact_flag_ = {true, true};
 
   // Foot position in the base frame (local coordinate)
   Eigen::VectorXd footEndPos_;

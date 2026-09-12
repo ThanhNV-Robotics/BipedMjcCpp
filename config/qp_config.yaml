@@ -1,0 +1,32 @@
+base_pd_gain:
+  kp_x: 100
+  kp_y: 100
+  kp_z: 100
+  kp_roll: 100
+  kp_pitch: 100
+  kp_yaw: 100
+  kd_x: 10
+  kd_y: 10
+  kd_z: 10
+  kd_roll: 10
+  kd_pitch: 10
+  kd_yaw: 10
+
+contact_weight: # weight for contact wrench in the cost function
+  # contact force
+  W_fx: 200
+  W_fy: 200
+  W_fz: 100
+  # contact moment
+  W_tx: 100
+  W_ty: 100
+  W_tz: 100
+
+friction_coefficient: # to set up the friction cone constraint
+  muy: 0.5
+
+maximum_normal_contact_force: # constraint on normal contact force for a smooth contact transition
+  Fz_max: 100
+
+
+  

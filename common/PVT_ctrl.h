@@ -17,65 +17,65 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include "LPF_fst.h"
 #include <vector>
 #include <cmath>
-#include "data_bus.h"
 #include "data_type.h"
 #include "robot_wrapper.h"
+#include "KinWBC.h"
 
 // PVT: Position Velocity Torque (control)
 // This class is for joint low-level 
 class PVT_Ctr {
 public:
     int jointNum;
-    std::vector<double> motor_pos_cur;
-    std::vector<double> motor_pos_des_old;
-    std::vector<double> motor_vel;
-    std::vector<double> motor_tor_out_link; // final tau output
-    std::vector<double> motor_tor_out_motor; // final tau output
+
+    // Current feedback state (from getFeedbackMotorState)
+    VectorXd motor_pos_cur;     // current joint positions  [jointNum]
+    VectorXd motor_vel;         // current joint velocities [jointNum]
+
+    // Desired references
+    VectorXd motor_pos_des;     // P desired [jointNum]
+    VectorXd motor_vel_des;     // V desired [jointNum]
+    VectorXd motor_tor_des;     // T feedforward [jointNum]
+    VectorXd motor_pos_des_old; // previous P desired (for delta-limit overload) [jointNum]
+
+    // Torque outputs — kept as std::vector<double> for MJ_Interface::setMotorsTorque() compatibility
+    std::vector<double> motor_tor_out_link;  // output torque at link  [jointNum]
+    std::vector<double> motor_tor_out_motor; // output torque at motor [jointNum]
+
+    // PD gains and limits
+    VectorXd pvt_Kp;   // proportional gain [jointNum]
+    VectorXd pvt_Kd;   // derivative gain   [jointNum]
+    VectorXd maxTor;   // torque limit      [jointNum]
+    VectorXd maxVel;   // velocity limit    [jointNum]
+    VectorXd maxPos;   // max joint pos     [jointNum]
+    VectorXd minPos;   // min joint pos     [jointNum]
+    VectorXd gear;     // gear ratio        [jointNum]
+
     PVT_Ctr(double timeStepIn, const char * yamlPath);
     void calMotorsPVT();
     void calMotorsPVT(double deltaP_Lim);
-    void calMotorsPVT (VectorXd ref_pos, VectorXd ref_vel, VectorXd tau_ff);
-    void enablePV(); // enable PV control item
-    void disablePV(); // disable PV control item
-    void enablePV(int jtId); // enable PV control item
-    void disablePV(int jtId); // disable PV control item
+    void calMotorsPVT(VectorXd ref_pos, VectorXd ref_vel, VectorXd tau_ff);
+    void calMotorsPVT(KinWBC &kin_wbc);
+    void enablePV();                        // enable PV for all joints
+    void disablePV();                       // disable PV for all joints
+    void enablePV(int jtId);
+    void disablePV(int jtId);
     void setJointPD(double kp, double kd, const char * jointName);
-    void dataBusRead(DataBus &busIn);
-    void dataBusWrite(DataBus &busIn);
 
-    void getFeedbackMotorState (RobotWrapper &robot_wrapper);
+    void getFeedbackMotorState(RobotWrapper &robot_wrapper);
 
     void printPVTinfo();
     void printTorqueOut();
 
     void genTestTrajectory(double t);
 
-    // Joint order matching motor_pos_des/motor_vel_des/motor_tor_des and every
-    // other per-joint vector below -- callers must map onto this order by
-    // name, not assume it matches any other model's/file's joint order (this
-    // one is the config file's top-level keys, sorted alphabetically in the
-    // constructor since yaml-cpp otherwise preserves the file's own order).
+    // Joint order matching motor_pos_des etc. -- callers must map by name.
     const std::vector<std::string> &getMotorNames() const { return motorName; }
-
-    std::vector<double> motor_pos_des; // P des
-    std::vector<double> motor_vel_des; // V des
-    std::vector<double> motor_tor_des; // T des
-
-    std::vector<double> pvt_Kp;
-    std::vector<double> pvt_Kd;
-    std::vector<double> maxTor;
-    std::vector<double> maxVel;
-    std::vector<double> maxPos;
-    std::vector<double> minPos;
-    std::vector<double> gear;
 
 private:
     std::vector<LPF_Fst> tau_out_lpf;
-    std::vector<LPF_Fst> traj_pos_lpf; // smooths genTestTrajectory's reference position
-    std::vector<LPF_Fst> traj_vel_lpf; // smooths genTestTrajectory's reference velocity
-    std::vector<int> PV_enable;
+    std::vector<LPF_Fst> traj_pos_lpf;
+    std::vector<LPF_Fst> traj_vel_lpf;
+    Eigen::VectorXi PV_enable;  // 1 = PV active, 0 = disabled [jointNum]
     double sign(double in);
-    std::vector<std::string> motorName; // joint names, populated from yamlPath's top-level keys in the constructor
+    std::vector<std::string> motorName;
 };
-
-
