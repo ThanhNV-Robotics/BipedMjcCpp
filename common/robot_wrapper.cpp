@@ -95,8 +95,6 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
 
     Jcom_W    = Jacobian3::Zero(3, model_nv_);
 
-
-
     pos_R_feet_W = Vector3d::Zero();
     pos_L_feet_W = Vector3d::Zero();
     pos_base_W   = Vector3d::Zero();
@@ -188,6 +186,30 @@ void RobotWrapper::integrateConfig (const VectorXd &delta_q)
     this->q = pin::integrate(pin_model_, this->q, delta_q);
 }
 
+VectorXd RobotWrapper::integrateDIY (const VectorXd &qI, const VectorXd &dqI) const
+{
+    VectorXd qRes = VectorXd::Zero(model_nq_);
+    Vector3d wDes;
+    wDes << dqI(3), dqI(4), dqI(5);
+    Eigen::Quaterniond quatNow;
+    quatNow.x() = qI(3);
+    quatNow.y() = qI(4);
+    quatNow.z() = qI(5);
+    quatNow.w() = qI(6);
+    Eigen::Quaterniond quatNew = intQuat(quatNow, wDes);
+    qRes = qI;
+    qRes(0) += dqI(0);
+    qRes(1) += dqI(1);
+    qRes(2) += dqI(2);
+    qRes(3) = quatNew.x();
+    qRes(4) = quatNew.y();
+    qRes(5) = quatNew.z();
+    qRes(6) = quatNew.w();
+    for (int i = 0; i < model_na_; i++)
+        qRes(7 + i) += dqI(6 + i);
+    return qRes;
+}
+
 void RobotWrapper::computeDyn()
 {
     /**
@@ -251,6 +273,30 @@ void RobotWrapper::computeKin() // Compute J_lf(q)
     /**
     * @brief compute all the Jacobians, Jacobian derivative and positions
     */
+    // avoid the singularity at the home position, add a small value to actuated joint values
+    // if one of the leg is near singular
+    
+    // const int n_left = left_leg_joint_ids_.size();
+    // const int n_right = right_leg_joint_ids_.size();
+
+    // VectorXd qj_L = q.segment(7, n_left);
+    // VectorXd qj_R = q.segment(7 + n_left, n_right);
+
+    // VectorXd q_temp = q;
+    
+    // Vector6d q_epsilon;
+    // q_epsilon << 0.09, 0.09, 0.05, 0.09, 0.0, 0.0; // 6 DoF in each leg
+
+    // const double singularity_threshold = 1e-4;
+    // if (qj_L.norm() < singularity_threshold)
+    // {
+    //     q_temp.segment(7, n_left) += q_epsilon;
+    // }
+    // if (qj_R.norm() < singularity_threshold)
+    // {
+    //     q_temp.segment(7 + n_left, n_right) += q_epsilon;
+    // }
+
     pin::forwardKinematics(pin_model_, pin_data_, q);
     pin::jacobianCenterOfMass(pin_model_, pin_data_, q, true);
     pin::computeJointJacobians(pin_model_, pin_data_, q);
@@ -552,4 +598,33 @@ std::vector<double> RobotWrapper::getMaxTorque()
         joint_torque_limit.push_back(this->pin_model_.effortLimit.tail(this->model_na_)[i]);
     }
     return joint_torque_limit;
+}
+
+VectorXd RobotWrapper::computeDoubleSupportGravityTorque()
+{
+    // Statically balances floating-base gravity and computes joint feedforward torques
+    // Assumes computeKin() and computeDyn() were called for current q, dq
+    MatrixXd Jc(12, model_nv_);
+    Jc.topRows(6) = J_Lfeet_W;
+    Jc.bottomRows(6) = J_Rfeet_W;
+
+    MatrixXd Jc_base_T = Jc.leftCols(6).transpose();         // 6 x 12
+    MatrixXd Jc_act_T  = Jc.rightCols(model_na_).transpose(); // model_na_ x 12
+
+    VectorXd g_base = dyn_G.col(0).head(6);
+    VectorXd g_act  = dyn_G.col(0).tail(model_na_);
+
+    // Nominal vertical contact force split equally between feet
+    VectorXd fc0 = VectorXd::Zero(12);
+    fc0(2) = g_base(2) * 0.5; // Left foot Fz
+    fc0(8) = g_base(2) * 0.5; // Right foot Fz
+
+    // Find minimum-norm contact force correction to achieve exact floating-base equilibrium
+    VectorXd residual = g_base - Jc_base_T * fc0;
+    VectorXd delta_fc = Jc_base_T.completeOrthogonalDecomposition().solve(residual);
+    VectorXd fc = fc0 + delta_fc;
+
+    // Joint torque balancing gravity and contact reactions
+    VectorXd tau_gravity = g_act - Jc_act_T * fc;
+    return tau_gravity;
 }

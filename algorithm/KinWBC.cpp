@@ -97,6 +97,7 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
 
     out_delta_q = kin_task.back()->delta_q;
     out_dq = kin_task.back()->dq;
+    q_des = integrateDIY(robot_wrapper.q, out_delta_q);
     return;
 
 }
@@ -130,7 +131,7 @@ void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacem
     task_base_height.ddX_des = VectorXd::Zero(1); // feedforward acceleration is 0
 
     // base rpy
-    task_base_rpy.X_des = VectorXd::Zero(3);
+    task_base_rpy.X_des = Vector3d(0.0, joyStick_cmd.thetaY, joyStick_cmd.thetaZ);
     task_base_rpy.dX_des = VectorXd::Zero(3);
     task_base_rpy.ddX_des = VectorXd::Zero(3);
 
@@ -190,9 +191,6 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_base_rpy.X_cur = diffRot(Eigen::Matrix3d::Identity(), Rcur_base); // how far current orientation has tilted away from upright
     task_base_rpy.dX_cur = Rcur_base * rb_wrapper.dq.segment<3>(3);
     task_base_rpy.J = Rcur_base * rb_wrapper.J_base_W.bottomRows(3);
-    // dJ*dq approximates d(Rcur_base)/dt as zero (only valid at the
-    // position/velocity IK level this class currently solves at, not yet an
-    // acceleration/ddq stage)
     task_base_rpy.dJ = Rcur_base * rb_wrapper.dJ_base_W.bottomRows(3);
     task_base_rpy.errX = task_base_rpy.X_des - task_base_rpy.X_cur;
     task_base_rpy.derrX = task_base_rpy.dX_des - task_base_rpy.dX_cur;
@@ -217,8 +215,21 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_CoMXY.X_cur = rb_wrapper.pos_CoM_W.head(2);
     task_CoMXY.dX_cur = rb_wrapper.vel_CoM_W.head(2);
     task_CoMXY.J = rb_wrapper.Jcom_W.topRows(2);
-    task_CoMXY.errX = task_CoMXY.X_des - task_CoMXY.X_cur;
+
+    // CoMXY CLIK gain step (scales displacement error to per-step deltaX)
+    const double dt = 0.001;
+    const double kp_com = 100.0;
+    Vector2d deltaX_com = task_CoMXY.dX_des * dt + kp_com * (task_CoMXY.X_des - task_CoMXY.X_cur) * dt;
+    for (int k = 0; k < 2; ++k) {
+        if (std::fabs(deltaX_com(k)) > 0.002)
+            deltaX_com(k) = 0.002 * ((deltaX_com(k) > 0) ? 1.0 : -1.0);
+    }
+    task_CoMXY.errX = deltaX_com;
     task_CoMXY.derrX = task_CoMXY.dX_des - task_CoMXY.dX_cur;
+    for (int k = 0; k < 2; ++k) {
+        if (std::fabs(task_CoMXY.derrX(k)) > 0.5)
+            task_CoMXY.derrX(k) = 0.5 * ((task_CoMXY.derrX(k) > 0) ? 1.0 : -1.0);
+    }
 
     // static_contact (6-dim: position + orientation) -- whichever foot is
     // currently the stance leg, "hold current pose" convention (errX/derrX
@@ -292,3 +303,27 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_swing_leg.derrX = task_swing_leg.dX_des - task_swing_leg.dX_cur;
 }
 
+
+VectorXd KinWBC::integrateDIY(const VectorXd &qI, const VectorXd &dqI)
+{
+    VectorXd qRes = VectorXd::Zero(qI.size());
+    Vector3d wDes;
+    wDes << dqI(3), dqI(4), dqI(5);
+    Eigen::Quaterniond quatNow;
+    quatNow.x() = qI(3);
+    quatNow.y() = qI(4);
+    quatNow.z() = qI(5);
+    quatNow.w() = qI(6);
+    Eigen::Quaterniond quatNew = intQuat(quatNow, wDes);
+    qRes = qI;
+    qRes(0) += dqI(0);
+    qRes(1) += dqI(1);
+    qRes(2) += dqI(2);
+    qRes(3) = quatNew.x();
+    qRes(4) = quatNew.y();
+    qRes(5) = quatNew.z();
+    qRes(6) = quatNew.w();
+    for (int i = 0; i < dqI.size() - 6; i++)
+        qRes(7 + i) += dqI(6 + i);
+    return qRes;
+}

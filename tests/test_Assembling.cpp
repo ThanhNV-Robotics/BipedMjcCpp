@@ -50,6 +50,7 @@ int main()
     // StateEstimator, PVT_Ctr)
     //************************************************************* */
     RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
+    RobotWrapper robot_wrapper_ref = RobotWrapper(URDF_PATH);
     KinWBC kin_wbc;
     RobotSensor rb_sensors(mj_model->na);
     JoyStickInterpreter joyStick(kin_wbc.dt);
@@ -73,18 +74,33 @@ int main()
     const double init_base_height = 0.755;
     VectorXd qIniDes = robot_wrapper.computeInitial_Stand(init_base_height);
     printf("Init standing joint config: \n");
-    std::cout << qIniDes << std::endl;
+    std::cout << qIniDes.transpose() << std::endl;
 
-    // Option 1: Spawn robot directly in bent-knee standing posture to eliminate singularity
+    // Initialize reference kinematic model to qIniDes standing pose with feet on ground (z=0)
+    robot_wrapper_ref.q.segment(7, robot_wrapper_ref.model_na_) = qIniDes;
+    robot_wrapper_ref.q(0) = 0.0;
+    robot_wrapper_ref.q(1) = 0.0;
+    robot_wrapper_ref.q(2) = 0.0;
+    robot_wrapper_ref.q(3) = 0.0;
+    robot_wrapper_ref.q(4) = 0.0;
+    robot_wrapper_ref.q(5) = 0.0;
+    robot_wrapper_ref.q(6) = 1.0;
+    robot_wrapper_ref.computeKin();
+    robot_wrapper_ref.q(2) = -robot_wrapper_ref.pos_L_feet_W(2); // place feet flat on ground
+    robot_wrapper_ref.computeKin();
+
+
+
+    // Spawn robot in home configuration (all actuated joints are 0)
     mj_data->qpos[0] = 0.0;
     mj_data->qpos[1] = 0.0;
-    mj_data->qpos[2] = 0.78; // nominal standing base height (0.75m leg + foot clearance)
+    mj_data->qpos[2] = 0.80; // straight-leg base height with feet resting on ground
     mj_data->qpos[3] = 1.0;    // quat w
     mj_data->qpos[4] = 0.0;    // quat x
     mj_data->qpos[5] = 0.0;    // quat y
     mj_data->qpos[6] = 0.0;    // quat z
     for (int i = 0; i < robot_wrapper.model_na_; i++) {
-        mj_data->qpos[7 + i] = 0*qIniDes(i);
+        mj_data->qpos[7 + i] = 0.0;
     }
     mju_zero(mj_data->qvel, mj_model->nv);
     mju_zero(mj_data->qacc, mj_model->nv);
@@ -94,6 +110,8 @@ int main()
     mj_interface.updateSensorValues(rb_sensors);
     state_estimator.update(rb_sensors, robot_wrapper);
     robot_wrapper.computeKin();
+    footPlanner.legLength = robot_wrapper.pos_base_W(2);
+    std::cout << "Initial base height: " << robot_wrapper.pos_base_W(2) << "\n";
 
     /// ----------------- sim Loop ---------------
     mjtNum simstart = mj_data->time;
@@ -105,26 +123,20 @@ int main()
     uiController.createWindow("Demo", false);
 
     // Signal plotting (must be created after GLFW window initialization)
-    RealtimePlot JoyStickPlot(mj_model, 800, 600, "Joystick Command", 5.0);
+    RealtimePlot JoyStickPlot(mj_model, 800, 600, "Base Height & Joystick", 5.0);
     JoyStickPlot.setYLabel("meters");
-    JoyStickPlot.setYLimit(-0.35, 1.0); 
+    JoyStickPlot.setYLimit(0.60, 0.90); 
     JoyStickPlot.setLineWidth(2.5f);
 
-    RealtimePlot JointRefPlot(mj_model, 800, 600, "KinWBC Joint Reference Positions", 5.0);
+    RealtimePlot JointRefPlot(mj_model, 800, 600, "Joint Reference Positions", 5.0);
     JointRefPlot.setYLabel("rad");
     JointRefPlot.setYLimit(-1.0, 1.0, true);
     JointRefPlot.setLineWidth(2.0f);
 
-    // Joystick handles the reference trajectory from t = 0
-    const double rampDuration = 4.0;
-    joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_base_W(2), 0.0);
-    joyStick.setMotionState(MotionState::STAND);
-    
-
-    cp_planner.xc_ = robot_wrapper.pos_CoM_W(0);
-    cp_planner.yc_ = robot_wrapper.pos_CoM_W(1);
-    cp_planner.d_xc_ = 0.0;
-    cp_planner.d_yc_ = 0.0;
+    // Duration to ramp joints to qIniDes
+    const double rampDuration = 2.0;
+    bool joystick_initialized = false;
+    bool joystick_control_start = false;
 
     while (!glfwWindowShouldClose(uiController.window))
     {
@@ -142,22 +154,77 @@ int main()
             mj_interface.updateSensorValues(rb_sensors); // propagate sensor values to rb_sensors
             state_estimator.update(rb_sensors, robot_wrapper);
             robot_wrapper.computeKin();
-            joyStick.step(); // run the joystick cmd
 
-            gaitScheduler.step(joyStick); // synchronize motion state and gait phase (STAND)
+            // After 2 seconds, initialize the joystick base height command once
+            if (simTime >= 2.0 && !joystick_initialized)
+            {
+                joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_base_W(2), 0.0);
+                joyStick.setMotionState(MotionState::STAND);
+                joyStick.setVxDesLPara(0.0, 0.1);
+                joyStick.setVyDesLPara(0.0, 0.1);
+                joyStick.setWzDesLPara(0.0, 0.1);
+                joyStick.setPzRef(robot_wrapper.pos_base_W(2), 0.01);
+                footPlanner.legLength = robot_wrapper.pos_base_W(2);
+                joystick_initialized = true;
+                std::cout << "[t=" << simTime << "] Joystick initialized to measured base height: " << robot_wrapper.pos_base_W(2) << "\n";
+            }
 
-            kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler); // compute reference motion
-            
-            pvtCtr.getFeedbackMotorState(robot_wrapper); // read back the estimated joint pos/vel            
-            pvtCtr.calMotorsPVT(kin_wbc); // KinWBC controls the robot from t = 0
+            if (simTime >= 5.0 && !joystick_control_start) { 
+                joystick_control_start = true;  
+                joyStick.setPzRef(0.78, 3);
+                joyStick.setPitchRef(0.0 * 3.14159265358979 / 180.0, 3);
+                pvtCtr.getFeedbackMotorState(robot_wrapper);
+                pvtCtr.motor_pos_des_old = pvtCtr.motor_pos_cur;
+                std::cout << "[t=" << simTime << "] KinWBC control started (CLIK direct feedback + gravity compensation), commanding base height to 0.72m and pitch to 5 deg in 3s\n";
+            }
+
+            if (simTime >= 5.0)
+            {
+                joyStick.step();
+                gaitScheduler.step(joyStick);
+
+                robot_wrapper.computeKin();
+                robot_wrapper.computeDyn();
+
+                cp_planner.xc_ = 0.0;
+                cp_planner.yc_ = 0.0;
+                cp_planner.d_xc_ = 0.0;
+                cp_planner.d_yc_ = 0.0;
+
+                kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler);
+
+                VectorXd q_des_full = robot_wrapper.integrateDIY(robot_wrapper.q, kin_wbc.out_delta_q);
+                VectorXd q_des = q_des_full.segment(7, robot_wrapper.model_na_);
+                VectorXd tau_gravity = robot_wrapper.computeDoubleSupportGravityTorque();
+
+                pvtCtr.getFeedbackMotorState(robot_wrapper);
+                pvtCtr.motor_pos_des = q_des;
+                pvtCtr.motor_vel_des = VectorXd::Zero(robot_wrapper.model_na_);
+                pvtCtr.motor_tor_des = tau_gravity;
+                pvtCtr.calMotorsPVT();
+            }
+            else
+            {
+                // Joint-space ramp from 0 to qIniDes over rampDuration (2 seconds)
+                double rampFrac = std::min(simTime / rampDuration, 1.0);
+                VectorXd rampedJointPos = rampFrac * qIniDes;
+
+                pvtCtr.motor_pos_des = rampedJointPos;
+                pvtCtr.motor_vel_des = VectorXd::Zero(robot_wrapper.model_na_);
+                pvtCtr.motor_tor_des = VectorXd::Zero(robot_wrapper.model_na_);
+                pvtCtr.getFeedbackMotorState(robot_wrapper);
+                pvtCtr.calMotorsPVT(); // PD impedance stand control with LPF
+            }
 
             mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor); // set joint torque to mujoco
         }
         
-        // JoyStickPlot.addPoint("base height", simTime, robot_wrapper.pos_base_W(2));
+        JoyStickPlot.addPoint("base height (est)", simTime, state_estimator.getBasePosEst()(2));
+        // JoyStickPlot.addPoint("base height (cmd)", simTime, joyStick.pz_W);
         JoyStickPlot.addPoint("target pz_W", simTime, joyStick.pz_W);
         JoyStickPlot.addPoint("vx_ref", simTime, joyStick.vx_W);
         JoyStickPlot.addPoint("vy_ref", simTime, joyStick.vy_W);
+        // JoyStickPlot.addPoint("", double time, double value)
         JoyStickPlot.render(); // makes JoyStickPlot's own context current, draws, swaps buffers
 
         static const std::vector<std::string> jointNamesShort = {

@@ -16,11 +16,13 @@ class JoyStickInterpreter {
 public:
     
     double thetaZ{0.0};
-    JoyStickInterpreter(double dtIn): dt{dtIn}, vxLGen(dtIn), vyLGen(dtIn), PzLGen(dtIn), wzLGen(dtIn), thetazGen(dtIn){};
+    double thetaY{0.0};
+    JoyStickInterpreter(double dtIn): dt{dtIn}, vxLGen(dtIn), vyLGen(dtIn), PzLGen(dtIn), wzLGen(dtIn), thetazGen(dtIn), pitchLGen(dtIn){};
     void setVxDesLPara(double vxDesLIn, double timeToReach);
     void setVyDesLPara(double vyDesLIn, double timeToReach);
     void setPzRef (double pzDesIn, double timeToReach); // control the base height
     void setWzDesLPara(double wzDesLIn, double timeToReach);
+    void setPitchRef(double pitchDesIn, double timeToReach); // control base pitch
     void setIniPos(double posX, double posY, double thetaZ);
     void setIniPos(double posX, double posY, 
         double posZ, double thetaZ);
@@ -33,7 +35,7 @@ public:
     void reset();
     MotionState getMotionState () {return this->motion_state;};
 
-    RampTrajectory vxLGen, vyLGen, PzLGen, wzLGen, thetazGen;
+    RampTrajectory vxLGen, vyLGen, PzLGen, wzLGen, thetazGen, pitchLGen;
 
 private:
     double dt;

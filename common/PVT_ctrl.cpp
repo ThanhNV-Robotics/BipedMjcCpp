@@ -130,7 +130,7 @@ void PVT_Ctr::calMotorsPVT(VectorXd ref_pos, VectorXd ref_vel, VectorXd tau_ff)
 void PVT_Ctr::calMotorsPVT(KinWBC &kin_wbc)
 {
     motor_pos_des = motor_pos_cur + kin_wbc.out_delta_q.tail(jointNum);
-    motor_vel_des = kin_wbc.out_dq.tail(jointNum);   // KinWBC output velocity
+    motor_vel_des = 0*kin_wbc.out_dq.tail(jointNum);   // KinWBC output velocity
     calMotorsPVT();                                  // reuse base overload
 }
 

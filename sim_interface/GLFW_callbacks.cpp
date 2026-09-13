@@ -53,6 +53,7 @@ void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
         cam.type = mjCAMERA_FREE;
 
     mjv_defaultOption(&opt);
+    opt.frame = mjFRAME_WORLD;
     mjv_defaultPerturb(&pert);
     pert.select = 0;
     pert.flexselect = -1;
@@ -227,6 +228,10 @@ void UIctr::Keyboard(int key, int scancode, int act, int mods)
 
     if (act==GLFW_RELEASE && key==GLFW_KEY_SPACE){
         buttonRead.key_space= true;
+    }
+
+    if (act==GLFW_RELEASE && key==GLFW_KEY_F){
+        toggleWorldFrame();
     }
 }
 

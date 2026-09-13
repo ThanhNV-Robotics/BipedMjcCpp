@@ -25,11 +25,17 @@ void JoyStickInterpreter::setPzRef (double pzDesIn, double timeToReach) // contr
     PzLGen.setPara(pzDesIn, timeToReach);
 }
 
+void JoyStickInterpreter::setPitchRef(double pitchDesIn, double timeToReach) // control base pitch
+{
+    pitchLGen.setPara(pitchDesIn, timeToReach);
+}
+
 
 void JoyStickInterpreter::step() {
     vx_L=vxLGen.step();
     vy_L=vyLGen.step();
     pz_W = PzLGen.step();
+    thetaY = pitchLGen.step();
 
     wz_L=wzLGen.step();
 
@@ -53,6 +59,7 @@ void JoyStickInterpreter::dataBusWrite(DataBus &dataBus) {
     dataBus.js_eul_des[2]=thetaZ;
     dataBus.js_omega_des[2]=wz_L;
     dataBus.base_pos_des << px_W, py_W, pz_W;
+    dataBus.base_rpy_des[1] = thetaY;
     dataBus.base_rpy_des[2] = thetaZ;
     dataBus.base_vel_des << vx_W, vy_W, vz_W;
     dataBus.base_omega_des[2] = wz_L;
@@ -62,10 +69,12 @@ void JoyStickInterpreter::reset() {
     vxLGen.resetOut(0);
     vyLGen.resetOut(0);
     wzLGen.resetOut(0);
+    pitchLGen.resetOut(0);
     vx_L=0;
     vy_L=0;
     wz_L=0;
     thetaZ=0;
+    thetaY=0;
 }
 
 void JoyStickInterpreter::setIniPos(double posX, double posY, double thetaZ) {

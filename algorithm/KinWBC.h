@@ -53,6 +53,10 @@ public:
     std::vector<Task*> kin_task_init_walk; // init walking task 
     // std::vector<Task> kin_task_walk;
     VectorXd out_delta_q, out_dq, out_ddq;
+    VectorXd q_des; // full integrated generalized configuration [base_pos(3), quat(4), joint_pos(na)]
+
+    VectorXd integrateDIY(const VectorXd &qI, const VectorXd &dqI);
+    VectorXd getMotorPosDes() const { return q_des.segment(7, q_des.size() - 7); }
 
     const double dt = 0.001; // sampling time
 

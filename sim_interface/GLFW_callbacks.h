@@ -81,6 +81,10 @@ public:
     void enableTracking();
     void disableTracking();
 
+    void enableWorldFrame() { opt.frame = mjFRAME_WORLD; }
+    void disableWorldFrame() { opt.frame = mjFRAME_NONE; }
+    void toggleWorldFrame() { opt.frame = (opt.frame == mjFRAME_WORLD) ? mjFRAME_NONE : mjFRAME_WORLD; }
+
 private:
     unsigned char* image_rgb_;
     float* image_depth_;

@@ -111,6 +111,8 @@ class RobotWrapper {
         // the floating-base quaternion is composed correctly, unlike a naive
         // q += delta_q (which doesn't make sense for the quaternion block)
         void integrateConfig (const VectorXd &delta_q);
+        VectorXd integrateDIY (const VectorXd &qI, const VectorXd &dqI) const;
+        VectorXd computeDoubleSupportGravityTorque();
 
         Vector12d computeFootInBase (ActuatorState actuator_state);
 

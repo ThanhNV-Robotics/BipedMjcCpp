@@ -71,7 +71,7 @@ int main()
     // Signal plotting 
     RealtimePlot HeightPlot(mj_model, 600, 400, "Base Height Tracking", 6.0);
     HeightPlot.setYLabel("meters");
-    HeightPlot.setYLimit(0.60, 0.80); 
+    HeightPlot.setYLimit(0.60, 0.85); 
     HeightPlot.setLineWidth(2.5f);
 
     RealtimePlot FootPlot(mj_model, 600, 400, "Foot Height (Contact Constraint)", 6.0);
@@ -84,15 +84,18 @@ int main()
     CoMPlot.setYLimit(-0.1, 0.1);
     CoMPlot.setLineWidth(2.5f);
 
-    // Starting at nominal bent configuration to avoid singularity
-    const double standLegLength = 0.72;
-    robot_wrapper.q(2) = standLegLength; // init initial base height
-    robot_wrapper.q.segment(7, robot_wrapper.model_na_) = robot_wrapper.computeInitial_Stand(standLegLength);
-    footPlanner.legLength = standLegLength;
+    // Initial configuration: home position (all actuated joints are 0)
+    robot_wrapper.q.segment(7, robot_wrapper.model_na_).setZero();
 
+    // Determine base height so feet rest on ground (z = 0) at home configuration
+    robot_wrapper.q(2) = 0.0;
     robot_wrapper.computeKin();
-    const double initial_height = robot_wrapper.pos_base_W(2);
-    std::cout << "Initial base height: " << initial_height << "\n";
+    const double initial_leg_length = -robot_wrapper.pos_L_feet_W(2);
+    robot_wrapper.q(2) = initial_leg_length;
+    robot_wrapper.computeKin();
+
+    footPlanner.legLength = robot_wrapper.pos_base_W(2);
+    std::cout << "Initial home base height: " << robot_wrapper.pos_base_W(2) << "\n";
 
     const double stepSize = 1.0;
 
@@ -102,7 +105,7 @@ int main()
     joyStick.setVxDesLPara(0.0, 0.1); // zero horizontal velocities for standing
     joyStick.setVyDesLPara(0.0, 0.1);
     joyStick.setWzDesLPara(0.0, 0.1);
-    joyStick.setPzRef(standLegLength, 0.01); // hold initial height
+    joyStick.setPzRef(robot_wrapper.pos_base_W(2), 0.01); // hold initial home height
 
     cp_planning.xc_ = robot_wrapper.pos_CoM_W(0);
     cp_planning.yc_ = robot_wrapper.pos_CoM_W(1);
@@ -110,29 +113,19 @@ int main()
     cp_planning.d_yc_ = 0.0;
 
     double simTime = 0.0;
-    bool squat_started = false;
-    bool stand_up_started = false;
+    bool stand_started = false;
 
     while (!glfwWindowShouldClose(uiController.window))
     {
         double frameStart = simTime;
         while (uiController.runSim && (simTime - frameStart) < 1.0 / 60.0) // press "1" to pause/resume, "2" to step
         {
-            // Trajectory profile:
-            // 0s - 1.5s: Hold initial stand at 0.72m
-            // 1.5s - 3.5s: Squat down to 0.65m
-            // 3.5s - 5.5s: Stand back up to 0.72m
-            if (simTime >= 1.5 && !squat_started)
+
+            if (simTime >= 1.0 && !stand_started)
             {
-                joyStick.setPzRef(0.65, 2.0); // squat down to 0.65m over 2 seconds
-                squat_started = true;
-                std::cout << "[t=" << simTime << "] Squatting down to 0.65m\n";
-            }
-            else if (simTime >= 3.5 && !stand_up_started)
-            {
-                joyStick.setPzRef(0.72, 2.0); // stand back up to 0.72m over 2 seconds
-                stand_up_started = true;
-                std::cout << "[t=" << simTime << "] Standing back up to 0.72m\n";
+                joyStick.setPzRef(0.72, 2.0); // command base height to 0.72m in 2 seconds
+                stand_started = true;
+                std::cout << "[t=" << simTime << "] Commanding base height to 0.72m in 2 seconds\n";
             }
 
             robot_wrapper.computeKin();
