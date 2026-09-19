@@ -60,7 +60,7 @@ int countActuatedJoints(const pin::Model& model)
 } 
 
 // Constructor
-RobotWrapper::RobotWrapper(const std::string& urdf_path)
+RobotWrapper::RobotWrapper(const std::string& urdf_path, bool verbose)
 {
     //*********************************************** */
     // model info
@@ -148,6 +148,11 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path)
     for (int pinoIdx = 0; pinoIdx < model_na_; ++pinoIdx)
     {
         jointNames_.push_back(model_fixedbase_.names[pinoIdx + 1]);
+    }
+
+    if (verbose) {
+        printModelInfo();
+        printFixedBaseModelInfo();
     }
 }
 

@@ -153,6 +153,18 @@ void UIctr::updateScene() {
 
     // update scene (include the perturbation force/torque arrow while dragging) and render
     mjv_updateScene(mj_model, mj_data, &opt, &pert, &cam, mjCAT_ALL, &scn);
+
+    // Render custom visual arrows (e.g. contact forces)
+    for (const auto& arr : custom_arrows_) {
+        if (scn.ngeom < scn.maxgeom) {
+            mjvGeom* geom = &scn.geoms[scn.ngeom];
+            mjv_initGeom(geom, mjGEOM_ARROW, nullptr, nullptr, nullptr, arr.rgba);
+            mjv_connector(geom, mjGEOM_ARROW, arr.width, arr.from, arr.to);
+            scn.ngeom++;
+        }
+    }
+    custom_arrows_.clear();
+
     glfwGetFramebufferSize(window, &viewport.width, &viewport.height);
     mjr_render(viewport, &scn, &con);
     std::string timeStr = "Simulation Time: " + std::to_string(mj_data->time);
@@ -412,3 +424,35 @@ UIctr::ButtonState UIctr::getButtonState() {
     buttonRead.key_space= false;
     return tmp;
 }
+
+void UIctr::addArrow(const double pos[3], const double vec[3], double scale, const float rgba[4], double width)
+{
+    VisualArrow arr;
+    arr.from[0] = pos[0];
+    arr.from[1] = pos[1];
+    arr.from[2] = pos[2];
+
+    arr.to[0] = pos[0] + scale * vec[0];
+    arr.to[1] = pos[1] + scale * vec[1];
+    arr.to[2] = pos[2] + scale * vec[2];
+
+    double dx = arr.to[0] - arr.from[0];
+    double dy = arr.to[1] - arr.from[1];
+    double dz = arr.to[2] - arr.from[2];
+    double len = std::sqrt(dx*dx + dy*dy + dz*dz);
+    if (len < 1e-3) return; // ignore tiny/zero vectors to prevent degenerate arrows
+
+    if (rgba) {
+        for (int i = 0; i < 4; ++i) arr.rgba[i] = rgba[i];
+    } else {
+        arr.rgba[0] = 1.0f; arr.rgba[1] = 0.2f; arr.rgba[2] = 0.2f; arr.rgba[3] = 0.8f; // default red
+    }
+    arr.width = width;
+    custom_arrows_.push_back(arr);
+}
+
+void UIctr::addArrow(const Eigen::Vector3d& pos, const Eigen::Vector3d& vec, double scale, const float rgba[4], double width)
+{
+    addArrow(pos.data(), vec.data(), scale, rgba, width);
+}
+

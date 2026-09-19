@@ -52,6 +52,7 @@ int main()
     RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH);
     RobotWrapper robot_wrapper_ref = RobotWrapper(URDF_PATH);
     KinWBC kin_wbc;
+    DynWBC dyn_wbc(YAML_WBC_DYN_CF_PATH, QP_WBC_CF_PATH, robot_wrapper, false);
     RobotSensor rb_sensors(mj_model->na);
     JoyStickInterpreter joyStick(kin_wbc.dt);
     MyGaitScheduler gaitScheduler(YAML_PLANNING_CF_PATH, kin_wbc.dt);
@@ -133,10 +134,28 @@ int main()
     JointRefPlot.setYLimit(-1.0, 1.0, true);
     JointRefPlot.setLineWidth(2.0f);
 
+    RealtimePlot TorquePlot(mj_model, 800, 600, "DynWBC Commanded Torque", 5.0);
+    TorquePlot.setYLabel("N*m");
+    TorquePlot.setYLimit(-20.0, 20.0, false);
+    TorquePlot.setLineWidth(2.0f);
+
+    // L_ankle_pitch-only comparison: what plain PD (currently driving the
+    // robot) commands vs. what DynWBC's QP would command for the same
+    // reference -- DynWBC is computed here purely for this comparison, its
+    // output is not applied to the robot. mjvFigure has no per-line
+    // dash/dot style (see RealtimePlot.h), so PD vs WBC is distinguished by
+    // legend name/color instead of line style.
+    RealtimePlot LeftLegTorqueCompare(mj_model, 800, 600, "L_ankle_pitch Torque: PD vs WBC", 5.0);
+    LeftLegTorqueCompare.setYLabel("N*m");
+    LeftLegTorqueCompare.setYLimit(-20.0, 20.0, false);
+    LeftLegTorqueCompare.setLineWidth(2.0f);
+
     // Duration to ramp joints to qIniDes
     const double rampDuration = 2.0;
     bool joystick_initialized = false;
     bool joystick_control_start = false;
+    VectorXd tau_pd_latest = VectorXd::Zero(robot_wrapper.model_na_);
+    VectorXd tau_dynwbc_latest = VectorXd::Zero(robot_wrapper.model_na_);
 
     while (!glfwWindowShouldClose(uiController.window))
     {
@@ -165,17 +184,29 @@ int main()
                 joyStick.setWzDesLPara(0.0, 0.1);
                 joyStick.setPzRef(robot_wrapper.pos_base_W(2), 0.01);
                 footPlanner.legLength = robot_wrapper.pos_base_W(2);
+                cp_planner.xc_ = 0.5 * (robot_wrapper.pos_L_feet_W(0) + robot_wrapper.pos_R_feet_W(0));
+                cp_planner.yc_ = 0.5 * (robot_wrapper.pos_L_feet_W(1) + robot_wrapper.pos_R_feet_W(1));
                 joystick_initialized = true;
                 std::cout << "[t=" << simTime << "] Joystick initialized to measured base height: " << robot_wrapper.pos_base_W(2) << "\n";
             }
 
-            if (simTime >= 5.0 && !joystick_control_start) { 
-                joystick_control_start = true;  
-                joyStick.setPzRef(0.78, 3);
-                joyStick.setPitchRef(0.0 * 3.14159265358979 / 180.0, 3);
+            if (simTime >= 5.0 && !joystick_control_start) {
+                joystick_control_start = true;
+                joyStick.setPzRef(0.76, 3.0);
+                joyStick.setPitchRef(0.0, 3.0);
                 pvtCtr.getFeedbackMotorState(robot_wrapper);
                 pvtCtr.motor_pos_des_old = pvtCtr.motor_pos_cur;
-                std::cout << "[t=" << simTime << "] KinWBC control started (CLIK direct feedback + gravity compensation), commanding base height to 0.72m and pitch to 5 deg in 3s\n";
+
+                // Sync the internal reference model to the robot's actual
+                // measured state right as feedback tracking control engages,
+                // then let it evolve open-loop (self-integrated) from here --
+                // see the note at the computeWBC_IK() call below.
+                robot_wrapper_ref.q = robot_wrapper.q;
+                robot_wrapper_ref.dq = robot_wrapper.dq;
+                robot_wrapper_ref.computeKin();
+
+                std::cout << "[t=" << simTime << "] DynWBC QP control started, commanding base height from "
+                          << robot_wrapper.pos_base_W(2) << "m to 0.72m in 3s\n";
             }
 
             if (simTime >= 5.0)
@@ -184,24 +215,55 @@ int main()
                 gaitScheduler.step(joyStick);
 
                 robot_wrapper.computeKin();
-                robot_wrapper.computeDyn();
 
+                // In standing mode, keep desired CoM centered between the feet
                 cp_planner.xc_ = 0.0;
                 cp_planner.yc_ = 0.0;
                 cp_planner.d_xc_ = 0.0;
                 cp_planner.d_yc_ = 0.0;
 
-                kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler);
+                // KinWBC solves against robot_wrapper_ref -- its OWN
+                // internally-integrated state -- not the feedback state, so
+                // the generated reference trajectory (out_delta_q, out_dq,
+                // q_des) is a smooth, open-loop evolution driven purely by
+                // the task targets (joystick height ramp, etc), independent
+                // of whatever the real robot is currently doing. This is
+                // what decouples reference generation from feedback: the
+                // previous design fed the ACTUAL (possibly diverging) robot
+                // state back into the recursive IK every tick, so a real
+                // tracking error fed straight back into "the correction
+                // needed right now," compounding tick over tick (deadbeat
+                // windup, see doc/DynWBC_review_and_plan.md).
+                kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper_ref, cp_planner, gaitScheduler);
 
-                VectorXd q_des_full = robot_wrapper.integrateDIY(robot_wrapper.q, kin_wbc.out_delta_q);
-                VectorXd q_des = q_des_full.segment(7, robot_wrapper.model_na_);
-                VectorXd tau_gravity = robot_wrapper.computeDoubleSupportGravityTorque();
+                // Advance the reference model by its own solved correction
+                // (self-integration), using RobotWrapper's own canonical,
+                // Pinocchio-consistent integrator (pin::integrate under the
+                // hood) rather than trusting KinWBC's separate q_des (which
+                // composes the quaternion itself via intQuat) -- this keeps
+                // robot_wrapper_ref's state advanced the same way the rest
+                // of RobotWrapper expects a tangent-space step to be applied.
+                const double stepSize = 1.0;
+                robot_wrapper_ref.integrateConfig(stepSize * kin_wbc.out_delta_q);
+                robot_wrapper_ref.dq = kin_wbc.out_dq;
+                robot_wrapper_ref.computeKin();
 
+                // Drive the robot with plain joint-space PD tracking of the
+                // KinWBC-generated reference (position + velocity) -- this
+                // is the confirmed-stable path (see doc/DynWBC_review_and_plan.md).
+                VectorXd ref_pos = kin_wbc.getMotorPosDes(); // kin_wbc.q_des joint segment
+                VectorXd ref_vel = kin_wbc.out_dq.tail(robot_wrapper.model_na_);
+                VectorXd tau_ff = VectorXd::Zero(robot_wrapper.model_na_);
                 pvtCtr.getFeedbackMotorState(robot_wrapper);
-                pvtCtr.motor_pos_des = q_des;
-                pvtCtr.motor_vel_des = VectorXd::Zero(robot_wrapper.model_na_);
-                pvtCtr.motor_tor_des = tau_gravity;
-                pvtCtr.calMotorsPVT();
+                pvtCtr.calMotorsPVT(ref_pos, ref_vel, tau_ff);
+                mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor);
+                tau_pd_latest = Eigen::Map<const VectorXd>(pvtCtr.motor_tor_out_link.data(), pvtCtr.motor_tor_out_link.size());
+
+                // DynWBC's QP torque, computed for the SAME reference/
+                // feedback state purely for comparison -- not applied to the
+                // robot (PD above is what's actually driving it).
+                dyn_wbc.updateRobotState(robot_wrapper, state_estimator);
+                tau_dynwbc_latest = dyn_wbc.computeTorque(kin_wbc, robot_wrapper);
             }
             else
             {
@@ -214,9 +276,8 @@ int main()
                 pvtCtr.motor_tor_des = VectorXd::Zero(robot_wrapper.model_na_);
                 pvtCtr.getFeedbackMotorState(robot_wrapper);
                 pvtCtr.calMotorsPVT(); // PD impedance stand control with LPF
+                mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor); // set joint torque to mujoco
             }
-
-            mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor); // set joint torque to mujoco
         }
         
         JoyStickPlot.addPoint("base height (est)", simTime, state_estimator.getBasePosEst()(2));
@@ -236,6 +297,19 @@ int main()
             JointRefPlot.addPoint(jointNamesShort[j], simTime, pvtCtr.motor_pos_des(j));
         }
         JointRefPlot.render();
+
+        for (size_t j = 0; j < 12; ++j)
+        {
+            TorquePlot.addPoint(jointNamesShort[j], simTime, tau_pd_latest(j));
+        }
+        TorquePlot.render();
+
+        {
+            const size_t j = 5; // L_ankle_pitch only
+            LeftLegTorqueCompare.addPoint(jointNamesShort[j] + " (PD)", simTime, tau_pd_latest(j));
+            LeftLegTorqueCompare.addPoint(jointNamesShort[j] + " (WBC)", simTime, tau_dynwbc_latest(j));
+        }
+        LeftLegTorqueCompare.render();
 
         uiController.updateScene();
     }

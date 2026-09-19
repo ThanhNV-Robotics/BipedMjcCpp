@@ -148,8 +148,8 @@ target_link_libraries(test_state_estimator PRIVATE core)
 # add_executable(test_pin_mcf_model tests/test_pin_mcf_model.cpp)
 # target_link_libraries(test_pin_mcf_model PRIVATE core matplotlibcpp)
 
-add_executable(test_Assembling tests/test_Assembling.cpp)
-target_link_libraries(test_Assembling PRIVATE core matplotlibcpp)
+# add_executable(test_Assembling tests/test_Assembling.cpp)
+# target_link_libraries(test_Assembling PRIVATE core matplotlibcpp)
 
 add_executable(test_WBCKin_stand tests/test_WBCKin_stand.cpp)
 target_link_libraries(test_WBCKin_stand PRIVATE core)

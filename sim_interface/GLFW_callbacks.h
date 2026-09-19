@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 #include <string>
 #include <memory>
+#include <vector>
+#include <Eigen/Dense>
 
 // Raw-GLFW MuJoCo viewer, single-threaded like OpenLoong-Dyn-Control's
 // UIctr: call updateScene() once per iteration from your own physics loop,
@@ -85,7 +87,19 @@ public:
     void disableWorldFrame() { opt.frame = mjFRAME_NONE; }
     void toggleWorldFrame() { opt.frame = (opt.frame == mjFRAME_WORLD) ? mjFRAME_NONE : mjFRAME_WORLD; }
 
+    // 3D Visual Arrow (e.g. for contact forces, CoM velocity)
+    struct VisualArrow {
+        mjtNum from[3];
+        mjtNum to[3];
+        float rgba[4];
+        mjtNum width;
+    };
+    void addArrow(const double pos[3], const double vec[3], double scale = 0.002, const float rgba[4] = nullptr, double width = 0.012);
+    void addArrow(const Eigen::Vector3d& pos, const Eigen::Vector3d& vec, double scale = 0.002, const float rgba[4] = nullptr, double width = 0.012);
+    void clearArrows() { custom_arrows_.clear(); }
+
 private:
+    std::vector<VisualArrow> custom_arrows_;
     unsigned char* image_rgb_;
     float* image_depth_;
 

@@ -199,7 +199,7 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_left_contact.X_cur = rb_wrapper.pos_L_feet_W;
     task_left_contact.dX_cur = rb_wrapper.vel_L_feet_W;
     task_left_contact.J = rb_wrapper.J_Lfeet_W;
-    task_left_contact.dJ = rb_wrapper.dJ_Lfeet_W;
+    task_left_contact.dJ = rb_wrapper.dJ_Lfeet_W; 
     task_left_contact.errX = VectorXd::Zero(6);
     task_left_contact.derrX = VectorXd::Zero(6);
 

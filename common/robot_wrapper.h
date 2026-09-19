@@ -127,7 +127,7 @@ class RobotWrapper {
         IkRes computeInK_Leg(const Eigen::Matrix3d &Rdes_L, const Eigen::Vector3d &Pdes_L, const Eigen::Matrix3d &Rdes_R, const Eigen::Vector3d &Pdes_R);
         VectorXd computeInitial_Stand(const double base_height);
         //Constructor
-        RobotWrapper(const std::string& urdf_path);
+        RobotWrapper(const std::string& urdf_path, bool verbose = false);
 
     private:
 

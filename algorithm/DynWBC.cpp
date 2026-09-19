@@ -3,266 +3,344 @@
 #include "robot_wrapper.h"
 #include "yaml-cpp/yaml.h"
 #include <iterator>
+#include <stdexcept>
 #include <vector>
 
-  DynWBC::DynWBC(const std::string &joint_config_yaml_path, const std::string &qp_config_yaml_path,
-     RobotWrapper &robot_wrapper,
-         bool verbose){
+  DynWBC::DynWBC(const std::string &joint_config_yaml_path,
+                 const std::string &qp_config_yaml_path,
+                 RobotWrapper &robot_wrapper,
+                 bool verbose){
   // joint_config_yaml_path: contain Kp and Kd gain and torque limit
   // qp_config_yaml_path: parameters for QP problem
 
-  // getMaxTorque() returns std::vector<double>; map it into the VectorXd
-  const std::vector<double> maxTorqueVec = robot_wrapper.getMaxTorque();
-  this->maxTorque_ = Eigen::Map<const VectorXd>(maxTorqueVec.data(), maxTorqueVec.size());
-  this->na_ = robot_wrapper.model_na_;
-
-  // load joint name
+  //-----------------------------------------------------------------------
+  // 1) joint_config_yaml_path -- per-joint kp/kd (eq. 17's joint-space PD
+  //    gain) and maxTorque (eq. 18's torque bound). Iterated in file order,
+  //    same pattern PVT_Ctr uses for the same file -- that order is load-
+  //    bearing (must match robot_wrapper.jointNames_ / URDF declaration
+  //    order, per the top-of-file comment in 12dof_joint_config.yaml).
+  //-----------------------------------------------------------------------
   YAML::Node joint_config = YAML::LoadFile(joint_config_yaml_path);
-  for (const auto &joint_name_cf : joint_config) {
-    const std::string name = joint_name_cf.first.as<std::string>();
-    joint_name_list_.push_back(name);
-  }
-  printf("number of joint name in yaml file: %zu \n", joint_name_list_.size());
-  printf("model na: %d\n", this->na_);
-  if (static_cast<int>(this->joint_name_list_.size()) != this->na_) {
-    printf("Configuration file is not valid");
-    return;
+  joint_names_.clear();
+  for (const auto &kv : joint_config)
+    joint_names_.push_back(kv.first.as<std::string>());
+
+  if (static_cast<int>(joint_names_.size()) != na_)
+    throw std::runtime_error(
+        "DynWBC: " + joint_config_yaml_path + " lists " +
+        std::to_string(joint_names_.size()) + " joints, expected na_=" +
+        std::to_string(na_));
+
+  if (static_cast<int>(robot_wrapper.jointNames_.size()) != na_)
+    throw std::runtime_error(
+        "DynWBC: robot_wrapper.jointNames_ size (" +
+        std::to_string(robot_wrapper.jointNames_.size()) +
+        ") does not match na_=" + std::to_string(na_));
+
+  for (int i = 0; i < na_; ++i)
+    if (joint_names_[i] != robot_wrapper.jointNames_[i])
+      throw std::runtime_error(
+          "DynWBC: joint order mismatch at index " + std::to_string(i) +
+          ": " + joint_config_yaml_path + " has '" + joint_names_[i] +
+          "', robot_wrapper (URDF order) has '" +
+          robot_wrapper.jointNames_[i] + "'");
+
+  Kp_j_    = MatrixXd::Zero(na_, na_);
+  Kd_j_    = MatrixXd::Zero(na_, na_);
+  tau_lim_ = VectorXd::Zero(na_);
+  for (int i = 0; i < na_; ++i) {
+    const YAML::Node &jt = joint_config[joint_names_[i]];
+    Kp_j_(i, i) = jt["kp"].as<double>();
+    Kd_j_(i, i) = jt["kd"].as<double>();
+    tau_lim_(i) = jt["maxTorque"].as<double>();
   }
 
-  // load Kp_j and Kd_j for actuated joint
-  this->Kp_j_.resize(na_, na_); this->Kp_j_.setZero();
-  this->Kd_j_.resize(na_, na_); this->Kd_j_.setZero();
-  for (int i = 0; i < static_cast<int>(this->joint_name_list_.size()); i++) {
-    const std::string &jname = joint_name_list_[i];
-    double kp = joint_config[jname]["kp"].as<double>();
-    double kd = joint_config[jname]["kd"].as<double>();
-    Kp_j_(i,i) = kp;
-    Kd_j_(i,i) = kd;
-  }
-
-  // load Kp_b_ and Kd_b_ for the floating base -- read from qp_config.yaml under 'base_pd_gain'
-  // (these are NOT in joint_config / 12dof_joint_config.yaml)
+  //-----------------------------------------------------------------------
+  // 2) qp_config_yaml_path -- base PD gain, QP cost weights (eq. 11),
+  //    friction coefficient (eq. 12), normal-force bound (eq. 13).
+  //-----------------------------------------------------------------------
   YAML::Node qp_config = YAML::LoadFile(qp_config_yaml_path);
-  const auto& base_pd = qp_config["base_pd_gain"];
-  this->Kp_b_.resize(6,6); this->Kp_b_.setZero();
-  this->Kd_b_.resize(6,6); this->Kd_b_.setZero();
-  this->Kp_b_(0,0) = base_pd["kp_x"].as<double>();
-  this->Kp_b_(1,1) = base_pd["kp_y"].as<double>();
-  this->Kp_b_(2,2) = base_pd["kp_z"].as<double>();
-  this->Kp_b_(3,3) = base_pd["kp_roll"].as<double>();
-  this->Kp_b_(4,4) = base_pd["kp_pitch"].as<double>();
-  this->Kp_b_(5,5) = base_pd["kp_yaw"].as<double>();
-  this->Kd_b_(0,0) = base_pd["kd_x"].as<double>();
-  this->Kd_b_(1,1) = base_pd["kd_y"].as<double>();
-  this->Kd_b_(2,2) = base_pd["kd_z"].as<double>();
-  this->Kd_b_(3,3) = base_pd["kd_roll"].as<double>();
-  this->Kd_b_(4,4) = base_pd["kd_pitch"].as<double>();
-  this->Kd_b_(5,5) = base_pd["kd_yaw"].as<double>();
 
-  // stack to Kp_ and Kd_ matrix
-  this->Kp_.resize(na_ + 6, na_ + 6);
-  this->Kd_.resize(na_ + 6, na_ + 6);
-  this->Kp_.setZero();
-  this->Kd_.setZero();
-  this->Kp_.block(0, 0, na_, na_) = this->Kp_j_;
-  this->Kp_.block(na_, na_, 6, 6) = this->Kp_b_;
-  this->Kd_.block(0, 0, na_, na_) = this->Kd_j_;
-  this->Kd_.block(na_, na_, 6, 6) = this->Kd_b_;
+  const YAML::Node &base_pd = qp_config["base_pd_gain"];
+  Kp_b_ = MatrixXd::Zero(6, 6);
+  Kd_b_ = MatrixXd::Zero(6, 6);
+  Kp_b_(0, 0) = base_pd["kp_x"].as<double>();
+  Kp_b_(1, 1) = base_pd["kp_y"].as<double>();
+  Kp_b_(2, 2) = base_pd["kp_z"].as<double>();
+  Kp_b_(3, 3) = base_pd["kp_roll"].as<double>();
+  Kp_b_(4, 4) = base_pd["kp_pitch"].as<double>();
+  Kp_b_(5, 5) = base_pd["kp_yaw"].as<double>();
+  Kd_b_(0, 0) = base_pd["kd_x"].as<double>();
+  Kd_b_(1, 1) = base_pd["kd_y"].as<double>();
+  Kd_b_(2, 2) = base_pd["kd_z"].as<double>();
+  Kd_b_(3, 3) = base_pd["kd_roll"].as<double>();
+  Kd_b_(4, 4) = base_pd["kd_pitch"].as<double>();
+  Kd_b_(5, 5) = base_pd["kd_yaw"].as<double>();
 
-  // Load remaining QP parameters from the already-opened qp_config node
-  double W_fx = qp_config["contact_weight"]["W_fx"].as<double>();
-  double W_fy = qp_config["contact_weight"]["W_fy"].as<double>();
-  double W_fz = qp_config["contact_weight"]["W_fz"].as<double>();
-  double W_tx = qp_config["contact_weight"]["W_tx"].as<double>();
-  double W_ty = qp_config["contact_weight"]["W_ty"].as<double>();
-  double W_tz = qp_config["contact_weight"]["W_tz"].as<double>();
+  // Stack into the full nv_ = 6(base) + na_(joints) PD gain used by eq. 17:
+  //   q̈^cmd = q̈^d + Kd_*(q̇^d - q̇) + Kp_*(q^d - q)
+  // Base occupies rows/cols [0,6), joints [6,nv_) -- matches robot_wrapper's
+  // dq layout [local_base_linear(3), local_base_angular(3), joints(na_)].
+  Kp_ = MatrixXd::Zero(nv_, nv_);
+  Kd_ = MatrixXd::Zero(nv_, nv_);
+  Kp_.block(0, 0, 6, 6)     = Kp_b_;
+  Kp_.block(6, 6, na_, na_) = Kp_j_;
+  Kd_.block(0, 0, 6, 6)     = Kd_b_;
+  Kd_.block(6, 6, na_, na_) = Kd_j_;
 
-  // construct contact weight matrix
-  this->W_c_ = MatrixXd::Zero(6, 6);
-  this->W_c_(0,0) = W_fx;
-  this->W_c_(1,1) = W_fy;
-  this->W_c_(2,2) = W_fz;
-  this->W_c_(3,3) = W_tx;
-  this->W_c_(4,4) = W_ty;
-  this->W_c_(5,5) = W_tz;
-  // Note: W_c_ is 6x6 (one contact foot); for two feet it will be block-diagonally expanded later
+  const YAML::Node &cost = qp_config["qp_cost_weight"];
 
-  double mu = qp_config["friction_coefficient"]["muy"].as<double>(); // key is 'muy' in qp_config.yaml
-  double Fz_max = qp_config["maximum_normal_contact_force"]["Fz_max"].as<double>();
+  // Wr_/Wc_ are SINGLE-contact-point (6x6) blocks; setupQPproblem() expands
+  // them block-diagonally per active contact -- eq. 11's F_r^T*Wr*F_r and
+  // ẍ_c^T*Wc*ẍ_c terms are each a per-contact 6-dim wrench/acceleration, one
+  // per foot in contact, not a fixed-size quantity like delta_ddq is.
+  const YAML::Node &wr = cost["contact_wrench"];
+  Wr_single_ = MatrixXd::Zero(contact_dim_, contact_dim_);
+  Wr_single_(0, 0) = wr["Wr_fx"].as<double>();
+  Wr_single_(1, 1) = wr["Wr_fy"].as<double>();
+  Wr_single_(2, 2) = wr["Wr_fz"].as<double>();
+  Wr_single_(3, 3) = wr["Wr_tx"].as<double>();
+  Wr_single_(4, 4) = wr["Wr_ty"].as<double>();
+  Wr_single_(5, 5) = wr["Wr_tz"].as<double>();
 
-  // init Matrix
-  const int nA = na_; // actuated DoF (legs)
-  const int nU = 6;   // underactuated DoF (floating base)
-  const int nc = 6;   // spatial dims per contact foot (3 linear + 3 angular)
-  const int nContacts = 2; // left + right foot
+  W_tau_ = MatrixXd::Zero(na_, na_); //
 
-  Ma_ = MatrixXd::Zero(nA, nA);
-  Mu_ = MatrixXd::Zero(nU, nU);
-  // Contact Jacobians stacked over both feet: (nc*nContacts) x nU / nA
-  Jc_ = MatrixXd::Zero(nc * nContacts, nA);
-  // Ja_ = MatrixXd::Zero(nc * nContacts, nA);
-  // Ju_ = MatrixXd::Zero(nc * nContacts, nU);
-  ha_ = VectorXd::Zero(nA);
-  hu_ = VectorXd::Zero(nU);
+  const YAML::Node &wc = cost["contact_acceleration"];
+  Wc_single_ = MatrixXd::Zero(contact_dim_, contact_dim_);
+  Wc_single_(0, 0) = wc["Wc_x"].as<double>();
+  Wc_single_(1, 1) = wc["Wc_y"].as<double>();
+  Wc_single_(2, 2) = wc["Wc_z"].as<double>();
+  Wc_single_(3, 3) = wc["Wc_roll"].as<double>();
+  Wc_single_(4, 4) = wc["Wc_pitch"].as<double>();
+  Wc_single_(5, 5) = wc["Wc_yaw"].as<double>();
 
-  // QP decision variable: x = [τ(na) ; fc_left(6) ; fc_right(6)]
-  //   QP_nv_des = na + nc*nContacts = 12 + 12 = 24  (DSt worst-case)
-  // QP_nc_des: friction pyramid (4) + normal force bound (1) per foot = 5 * 2 = 10
-  QP_nv_des = nA + nc * nContacts; // = 24
-  QP_nc_des = 5 * nContacts;       // = 10
+  // W_ddq_ is fixed-size (nv_ x nv_): delta_ddq's dimension doesn't change
+  // with the number of active contacts, unlike Wr_/Wc_ above.
+  const YAML::Node &wddq = cost["delta_joint_acceleration"];
+  const double W_ddq_b = wddq["W_ddq_b"].as<double>();
+  const double W_ddq_j = wddq["W_ddq_j"].as<double>();
+  W_ddq_ = MatrixXd::Zero(nv_, nv_);
+  W_ddq_.block(0, 0, 6, 6).diagonal().setConstant(W_ddq_b);
+  W_ddq_.block(6, 6, na_, na_).diagonal().setConstant(W_ddq_j);
 
-  // Pre-allocate QP buffers at DSt (max) size; resized in setupQPproblem() as needed
-  qp_H_.assign(QP_nv_des * QP_nv_des, 0.0);
-  qp_A_.assign(QP_nc_des * QP_nv_des, 0.0);
-  qp_g_.assign(QP_nv_des,             0.0);
-  qp_lbA_.assign(QP_nc_des,           0.0);
-  qp_ubA_.assign(QP_nc_des,           0.0);
-  xOpt_iniGuess_.assign(QP_nv_des,    0.0);
+  muy_    = qp_config["friction_coefficient"]["muy"].as<double>();
+  Fz_max_ = qp_config["maximum_normal_contact_force"]["Fz_max"].as<double>();
 
-  // Simple bounds: τ ∈ [-maxTorque, +maxTorque], fc unconstrained (friction cone via lbA/ubA)
-  const double INF = qpOASES::INFTY;
-  qp_lb_.assign(QP_nv_des, -INF);
-  qp_ub_.assign(QP_nv_des, +INF);
-  for (int i = 0; i < nA; ++i) {
-    qp_lb_[i] = -maxTorque_(i);
-    qp_ub_[i] = +maxTorque_(i);
-  }
+  //-----------------------------------------------------------------------
+  // Friction cone (eq. 12): U_single_ * Fr >= 0, single contact point,
+  // Fr = [fx, fy, fz, tx, ty, tz]. Box (pyramid) approximation on the
+  // linear force components only -- moments are unconstrained by friction.
+  // setupQPproblem() expands this block-diagonally per active contact,
+  // same as Wr_single_ above.
+  //   row 0: fz >= 0
+  //   row 1: muy_*fz - fx >= 0   (fx <=  muy_*fz)
+  //   row 2: muy_*fz + fx >= 0   (fx >= -muy_*fz)
+  //   row 3: muy_*fz - fy >= 0   (fy <=  muy_*fz)
+  //   row 4: muy_*fz + fy >= 0   (fy >= -muy_*fz)
+  //-----------------------------------------------------------------------
+  U_single_ = MatrixXd::Zero(5, contact_dim_);
+  U_single_(0, 2) = 1.0;
+  U_single_(1, 0) = -1.0; U_single_(1, 2) = muy_;
+  U_single_(2, 0) =  1.0; U_single_(2, 2) = muy_;
+  U_single_(3, 1) = -1.0; U_single_(3, 2) = muy_;
+  U_single_(4, 1) =  1.0; U_single_(4, 2) = muy_;
 
+  //-----------------------------------------------------------------------
+  // 3) constant selection matrix for eq. 15:
+  //      A*q̈ + b + g = (0_6 ; τ^cmd) + Jc^T*F_r
+  //    S_tau_ maps τ (na_) into an nv_ vector with the floating-base rows
+  //    zeroed -- S_tau_ = [0(6 x na_) ; I(na_)].
+  //-----------------------------------------------------------------------
+  S_tau_ = MatrixXd::Zero(nv_, na_);
+  S_tau_.block(6, 0, na_, na_) = MatrixXd::Identity(na_, na_);
 
+  contact_state_ = LegState::DSt;
+  q_des_ = VectorXd::Zero(n_dof_);
+  dq_des_ = VectorXd::Zero(n_dof_);
+  ddq_cmd_ = VectorXd::Zero(n_dof_);
+  
   if (verbose) {
-    printf("===================== QP Parameters =====================\n");
-    // print joint name, kp, kp and max torque attribute
-    for (int i = 0; i < na_; i++) {
-      printf("joint name: %s, kp: %f, kd: %f, max torque: %f\n",
-             this->joint_name_list_[i].c_str(), this->Kp_j_(i,i), this->Kd_j_(i,i),
-             this->maxTorque_(i));
-    }
-    // print base link kp and kd matrix
-    printf("Kp_b_ matrix:\n");
-    std::cout << this->Kp_b_ << std::endl;
-    printf("Kd_b_ matrix:\n");
-    std::cout << this->Kd_b_ << std::endl;
-    printf("Kp_ matrix:\n");
-    std::cout << this->Kp_ << std::endl;
-    printf("Kd_ matrix:\n");
-    std::cout << this->Kd_ << std::endl;
-    // print weight matrix
-    printf("contact weight matrix:\n");
-    std::cout << this->W_c_ << std::endl;
-    
-    // print friction coefficient and maximum normal contact force
-    printf("friction coefficient: %f\n", mu);
-    printf("maximum normal contact force: %f\n", Fz_max);
-    
+    printf("===================== DynWBC config =====================\n");
+    for (int i = 0; i < na_; ++i)
+      printf("joint: %-24s kp=%6.2f kd=%5.2f maxTorque=%6.2f\n",
+             joint_names_[i].c_str(), Kp_j_(i, i), Kd_j_(i, i), tau_lim_(i));
+    std::cout << "Kp_b_ (diag):\n" << Kp_b_.diagonal().transpose() << std::endl;
+    std::cout << "Kd_b_ (diag):\n" << Kd_b_.diagonal().transpose() << std::endl;
+    std::cout << "Wr_single_ (diag):\n" << Wr_single_.diagonal().transpose() << std::endl;
+    std::cout << "Wc_single_ (diag):\n" << Wc_single_.diagonal().transpose() << std::endl;
+    printf("W_ddq_b=%.4f  W_ddq_j=%.4f\n", W_ddq_b, W_ddq_j);
+    printf("muy_=%.3f  Fz_max_=%.1f\n", muy_, Fz_max_);
+    std::cout << "U_single_ (U_single_ * Fr >= 0):\n" << U_single_ << std::endl;
+    printf("===========================================================\n");
   }
+
+  return;
 }
 
 VectorXd DynWBC::computeTorque(KinWBC& kin_wbc_sol, RobotWrapper &robot_wrapper)
 {
-    // get q_des and dq_des
     VectorXd tqr_cmd = VectorXd::Zero(na_);
-    // TODO: Implement QP here
 
+    // Desired configuration/velocity for eq. 17, converted into the same
+    // n_dof_ (18) minimal-coordinate layout q_ uses (see updateRobotState()).
+    // kin_wbc_sol.q_des is nq_-dim (19: base_pos(3), quat(4), joints(na_));
+    // kin_wbc_sol.out_dq is already tangent-space (nv_ = n_dof_ = 18), so
+    // dq_des_ needs no conversion.
+    q_des_ = VectorXd::Zero(n_dof_);
+    q_des_.segment<3>(0) = kin_wbc_sol.q_des.head<3>();
+    Eigen::Quaterniond quat_des_W(kin_wbc_sol.q_des(6), kin_wbc_sol.q_des(3), kin_wbc_sol.q_des(4), kin_wbc_sol.q_des(5));
+    Eigen::Matrix3d Rdes_base = quat_des_W.toRotationMatrix();
+    q_des_.segment<3>(3) = diffRot(Eigen::Matrix3d::Identity(), Rdes_base);
+    q_des_.segment(6, na_) = kin_wbc_sol.q_des.segment(7, na_);
+
+    dq_des_ = kin_wbc_sol.out_dq;
+
+    // TODO: call setupQPproblem(robot_wrapper), solve the QP, and extract
+    // tau from the solution (x = [Fr; ddxc; delta_ddq; tau]).
     return tqr_cmd;
-    // this->q_des_ += kin_wbc_sol.out_delta_q
 }
 
 void DynWBC::updateRobotState(RobotWrapper &robot_wrapper, StateEstimator &state_estimator)
 {
-  this->contact_state_ = state_estimator.getContactState();
-  // update robot configuration
-  q_  = robot_wrapper.getQ();
-  dq_ = robot_wrapper.getDq();
+   // TODO: implement
+   robot_wrapper.computeDyn(); // compute robot dynamics terms
+   this->contact_state_ = state_estimator.getContactState();
+   this->Mq_ = robot_wrapper.dyn_M;
+   this->h_nl_ = robot_wrapper.dyn_Non;
+   this->dq_ = robot_wrapper.dq;
 
-  // recompute dynamics terms (M, C, G, ...) from the current q/dq
-  robot_wrapper.computeDyn();
+   // Current configuration in the SAME n_dof_ (18) minimal-coordinate layout
+   // as Kp_/Kd_/q_des_: [base_pos_W(3), base_orientation-deviation-from-
+   // upright(3), joint_pos(na_)]. The orientation block uses diffRot() the
+   // same way KinWBC::updateCurrent() builds task_base_rpy.X_cur -- NOT the
+   // raw quaternion -- since Kp_ is a tangent-space (nv_) gain and can't be
+   // multiplied against a naive quaternion difference (that's the exact bug
+   // documented in doc/DynWBC_review_and_plan.md, just on the other operand).
+   q_ = VectorXd::Zero(n_dof_);
+   q_.segment<3>(0) = robot_wrapper.q.head<3>(); // base position, world frame
+   Eigen::Quaterniond quat_base_W(robot_wrapper.q(6), robot_wrapper.q(3), robot_wrapper.q(4), robot_wrapper.q(5));
+   Eigen::Matrix3d Rcur_base = quat_base_W.toRotationMatrix();
+   q_.segment<3>(3) = diffRot(Eigen::Matrix3d::Identity(), Rcur_base);
+   q_.segment(6, na_) = robot_wrapper.q.segment(7, na_); // joint positions
 
-  // Extract sub-blocks from the full (nv x nv) mass matrix Mq:
-  //   rows/cols [0..5]      -> underactuated floating-base DoF  (Mu_: 6x6)
-  //   rows/cols [6..6+na-1] -> actuated joint DoF               (Ma_: na x na)
-  // block<R,C>() requires compile-time constants; na_ is a runtime int,
-  // so we use the 4-argument dynamic overload block(row, col, rows, cols).
-  const MatrixXd& Mq = robot_wrapper.dyn_M;
-  this->Mu_ = Mq.block(0, 0, 6,    6   );
-  this->Ma_ = Mq.block(6, 6, na_,  na_ );
-
-  // Nonlinear (Coriolis + gravity) vector h = C*dq + G
-  const VectorXd& h = robot_wrapper.dyn_Non;
-  this->hu_ = h.segment(0,   6  );
-  this->ha_ = h.segment(6,   na_);
-
-  // Extract contact Jacobians for both feet from robot_wrapper.
-  // robot_wrapper.J_Lfeet_W / J_Rfeet_W are each 6 x nv, where columns are
-  // ordered [floating_base(6) | actuated_joints(na_)]:
-  //   Ju_: cols [0 .. 5]         -- underactuated / floating-base sub-Jacobian
-  //   Ja_: cols [6 .. 6+na_-1]  -- actuated-joint sub-Jacobian
-  // Stacked vertically: left foot on top, right foot on bottom.
-  const MatrixXd& Jl = robot_wrapper.J_Lfeet_W; // 6 x nv
-  const MatrixXd& Jr = robot_wrapper.J_Rfeet_W; // 6 x nv
-
-  Ju_.topRows(6)    = Jl.leftCols(6);      // left  foot, floating-base cols
-  Ju_.bottomRows(6) = Jr.leftCols(6);      // right foot, floating-base cols
-  Ja_.topRows(6)    = Jl.rightCols(na_);   // left  foot, actuated-joint cols
-  Ja_.bottomRows(6) = Jr.rightCols(na_);   // right foot, actuated-joint cols
+   return;
 }
 
 void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
 {
-  // compute acceleration command
-  VectorXd ddq_cmd = VectorXd::Zero(na_ + 6);
-  ddq_cmd = Kp_ * (q_des_ - q_) + Kd_ * (dq_des_ - dq_);
-  const int nv = robot_wrapper.model_nv_;
 
   // QP problem is defined as: 
   // J = 1/2x^THx + g^Tx
   // s.t. x_lb <= x <= x_ub
   // lb_A <= Ax <= ub_A
   
+  // Check the contact state
+  int nContacts = 0;
+
   switch (this->contact_state_) 
   {
     case LegState::DSt: { // double support — stack both foot Jacobians
-      Jc_.resize(2*contact_dim_, nv);
-      Jc_.topRows(contact_dim_)    = robot_wrapper.J_Lfeet_W;
-      Jc_.bottomRows(contact_dim_) = robot_wrapper.J_Rfeet_W;
+      nContacts = 2;
+      this->Jc_.resize(2*contact_dim_, this->na_ + 6); // 2*6
+      this->Jc_.topRows(contact_dim_)    = robot_wrapper.J_Lfeet_W;
+      this->Jc_.bottomRows(contact_dim_) = robot_wrapper.J_Rfeet_W;
 
-      // Expand W_c_ block-diagonally for 2 feet (avoid self-aliasing by using a temp)
-      MatrixXd W1 = W_c_;  // save 6x6 base weight
-      W_c_ = MatrixXd::Zero(2*contact_dim_, 2*contact_dim_);
-      W_c_.block(0,             0,             contact_dim_, contact_dim_) = W1;
-      W_c_.block(contact_dim_, contact_dim_, contact_dim_, contact_dim_) = W1;
+      this->dJc_.resize(2*contact_dim_, this->na_ + 6);
+      this->dJc_.topRows(contact_dim_)    = robot_wrapper.dJ_Lfeet_W;
+      this->dJc_.bottomRows(contact_dim_) = robot_wrapper.dJ_Rfeet_W;
 
-      QP_nv_des = na_ + 2*contact_dim_;
+      // Expand Wr_ block-diagonally for 2 feet
+      Wr_ = MatrixXd::Zero(2*contact_dim_, 2*contact_dim_); // 12x12
+      Wr_.block(0,             0,             contact_dim_, contact_dim_) = Wr_single_;
+      Wr_.block(contact_dim_, contact_dim_, contact_dim_, contact_dim_) = Wr_single_;
+
+      // Expand Wc_ block-diagonally for 2 feet, same as Wr_ above
+      Wc_ = MatrixXd::Zero(2*contact_dim_, 2*contact_dim_); // 12x12
+      Wc_.block(0,             0,             contact_dim_, contact_dim_) = Wc_single_;
+      Wc_.block(contact_dim_, contact_dim_, contact_dim_, contact_dim_) = Wc_single_;
+
+      // Expand friction cone matrix U block-diagonally for 2 feet: 5 rows
+      // (friction cone) per contact, 6 cols (Fr) per contact -- NOT square.
+      U_ = MatrixXd::Zero(2*5, 2*contact_dim_); // 10x12
+      U_.block(0, 0,            5, contact_dim_) = U_single_;
+      U_.block(5, contact_dim_, 5, contact_dim_) = U_single_;
+
+      // number of variable
+      n_Fr_ = 2*contact_dim_;
+      n_ddxc_ = 2*contact_dim_;
+      QP_numOfvars_ = n_Fr_ + n_ddxc_ + n_dof_ + n_tau_;
+
       break;
     }
     case LegState::LSt: // left stance — only left foot in contact
+      nContacts = 1;
       Jc_ = robot_wrapper.J_Lfeet_W; // 6 x nv
-      QP_nv_des = na_ + contact_dim_;
+      Wr_ = Wr_single_;
+      QP_numOfvars_ = contact_dim_;
       break;
     case LegState::RSt: // right stance — only right foot in contact
+      nContacts = 1;
       Jc_ = robot_wrapper.J_Rfeet_W; // 6 x nv
-      QP_nv_des = na_ + contact_dim_;
+      Wr_ = Wr_single_;
+      QP_numOfvars_ = contact_dim_;
       break;
   }
-  // Extract floating-base / actuated sub-Jacobians from Jc_ (nc x nv, col-split)
-  Ju_ = Jc_.leftCols(6);        // cols [0..5]        → floating-base DoF
-  Ja_ = Jc_.rightCols(na_);     // cols [6..6+na_-1]  → actuated-joint DoF
 
+  // Hessian H correspond to optimize variable x = [Fr]
+  MatrixXd H = MatrixXd::Zero(QP_numOfvars_, QP_numOfvars_);
+  // H = diag(Wr, wc, Wqdd, Wt)
+  H.block(0,            0,           2*contact_dim_,      2*contact_dim_) = Wr_;
+  H.block(2*contact_dim_, 2*contact_dim_, 2*contact_dim_,      2*contact_dim_) = Wc_;
+  H.block(4*contact_dim_, 4*contact_dim_, 6+na_,             6+na_)            = W_ddq_;
+  H.block(4*contact_dim_+6+na_, 4*contact_dim_+6+na_, na_, na_) = W_tau_;
 
+  //-------------------------------------------------------------
+  // -------------Construct constraints -------------------------
+  //-------------------------------------------------------------
 
-  // Hessian H = block_diag(0_{na x na}, W_c_) — zero torque cost, penalise contact wrench
-  const int nv_qp = QP_nv_des;
-  qp_H_.assign(nv_qp * nv_qp, 0.0);
-  // Copy W_c_ into the bottom-right block of qp_H_ (row-major flat storage)
-  Eigen::Map<Eigen::Matrix<qpOASES::real_t, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
-      qp_H_.data() + na_ * nv_qp + na_, W_c_.rows(), W_c_.cols()) =
-      W_c_.cast<qpOASES::real_t>();
+  //-------------------------------------------------------------
+  // Friction cone matrix (eq. 12): U_ * Fr >= 0, so this constraint's rows
+  //-------------------------------------------------------------
 
-  // gradient g = 0
-  qp_g_.assign(nv_qp, 0.0);
+  // number U_.rows() (5 per contact), NOT n_Fr_ (Fr's own dimension,
+  // 6 per contact) -- those only happen to share a value by coincidence
+  // in other blocks; U_'s row/col shape is 5*nContacts x 6*nContacts.
+  // for this set lower bound to -inf
+  MatrixXd A_fc = MatrixXd::Zero(U_.rows(), QP_numOfvars_);
+  A_fc.block(0, 0, U_.rows(), U_.cols()) = U_;
+  VectorXd fc_ub = VectorXd::Zero(U_.rows(), 1) + Fz_max_ * VectorXd::Ones(U_.rows(), 1);
+  
+  //-------------------------------------------------------------
+  // Normal reaction force constraint (eq. 13): S_ * Fr <= Fz_max_
+  //-------------------------------------------------------------
+  MatrixXd A_Fzmax = MatrixXd::Zero(nContacts, QP_numOfvars_);
+  S_ = MatrixXd::Zero(nContacts, QP_numOfvars_);
+  for (int i = 0; i < nContacts; ++i)
+    S_(i, i * contact_dim_ + 2) = 1.0;
+  VectorXd Fz_max_ub = Fz_max_ * VectorXd::Ones(nContacts);
+  A_Fzmax.block(0, 0, nContacts, QP_numOfvars_) = S_;
 
-  // equality constraints: dynamics equation
-  // Matr
+  //-------------------------------------------------------------
+  // contact acceleration equality ddxc = Jc*ddq + dJc*dq
+  // <=> ddxc - Jc*delta_ddq = Jc*ddq_cmd + dJc*dq
+  // (substituting eq. 16's ddq = ddq_cmd + delta_ddq) -- an EQUALITY
+  // constraint (lbA = ubA = b_ddxc below), n_ddxc_ rows, touching only the
+  // ddxc block (coefficient I) and the delta_ddq block (coefficient -Jc_);
+  // Fr and tau get zero coefficient, same layout convention as A_fc/A_Fzmax.
+  //-------------------------------------------------------------
 
+  // compute ddq_cmd
+  ddq_cmd_ = Kp_ * (q_des_ - q_) + Kd_ * (dq_des_ - dq_);
+
+  MatrixXd A_ddxc = MatrixXd::Zero(n_ddxc_, QP_numOfvars_);
+  A_ddxc.block(0, n_Fr_,           n_ddxc_, n_ddxc_) = MatrixXd::Identity(n_ddxc_, n_ddxc_);
+  A_ddxc.block(0, n_Fr_ + n_ddxc_, n_ddxc_, n_dof_)  = -Jc_;
+  VectorXd b_ddxc = Jc_ * ddq_cmd_ + dJc_ * dq_;
+
+  std::cout<<"Number of variables: "<<QP_numOfvars_<<std::endl;
+  std::cout<<"Size of Hessian matrix H: "<<H.rows()<<"x"<<H.cols()<<std::endl;
+  std::cout<< "Hessian matrix H: "<<std::endl;
+  std::cout<<H<<std::endl;
 
   return;
 }

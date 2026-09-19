@@ -1,32 +1,44 @@
 base_pd_gain:
-  kp_x: 100
-  kp_y: 100
-  kp_z: 100
-  kp_roll: 100
-  kp_pitch: 100
-  kp_yaw: 100
-  kd_x: 10
-  kd_y: 10
-  kd_z: 10
-  kd_roll: 10
-  kd_pitch: 10
-  kd_yaw: 10
+  # Kp base gain
+  kp_x: 1
+  kp_y: 1
+  kp_z: 1
+  kp_roll: 1
+  kp_pitch: 1
+  kp_yaw: 1
+  
+  # Kd base gain
+  kd_x: 0.1
+  kd_y: 0.1
+  kd_z: 0.1
+  kd_roll: 0.1
+  kd_pitch: 0.1
+  kd_yaw: 0.1
 
-contact_weight: # weight for contact wrench in the cost function
-  # contact force
-  W_fx: 200
-  W_fy: 200
-  W_fz: 100
-  # contact moment
-  W_tx: 100
-  W_ty: 100
-  W_tz: 100
+qp_cost_weight:
+
+  contact_wrench: # weight for contact wrench in the cost function
+    # contact force
+    Wr_fx: 0.01
+    Wr_fy: 0.01
+    Wr_fz: 1
+    # contact moment
+    Wr_tx: 100
+    Wr_ty: 100
+    Wr_tz: 100
+  contact_acceleration: # weight for contact acceleration in the cost function
+    Wc_x: 0.1
+    Wc_y: 0.1
+    Wc_z: 0.1
+    Wc_roll: 0.1
+    Wc_pitch: 0.1
+    Wc_yaw: 0.1
+  delta_joint_acceleration:
+    W_ddq_b: 0.01 # for base/underactuated joint
+    W_ddq_j: 0.1  # for actuated joints
 
 friction_coefficient: # to set up the friction cone constraint
   muy: 0.5
 
 maximum_normal_contact_force: # constraint on normal contact force for a smooth contact transition
-  Fz_max: 100
-
-
-  
+  Fz_max: 400.0
