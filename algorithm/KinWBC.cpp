@@ -3,11 +3,12 @@
 #include "KinWBC.h"
 #include "data_type.h"
 #include "robot_wrapper.h"
+#include "yaml-cpp/yaml.h"
 #include <cstdio>
 #include <stdexcept>
 
 // constructor
-KinWBC::KinWBC()
+KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
 {
     // // construct stand and walk task, in priority order (index 0 = highest)
 
@@ -32,6 +33,33 @@ KinWBC::KinWBC()
     kin_task_walk.push_back(&task_CoMXY);
     kin_task_walk.push_back(&task_base_rpy);
     kin_task_walk.push_back(&task_base_height);
+
+    //---------------Per-task operational-space PD gains-----
+    // Used only for the acceleration-level solve (out_ddq, see
+    // computeWBC_IK()): ddxcmd = ddX_des + kp*errX + kd*derrX. Loaded from
+    // wbc_config_yaml_path's kin_task_gain section -- one scalar kp/kd per
+    // task (applied uniformly across that task's own dimension), keyed by
+    // the task's own taskName so the yaml keys and Task("...") names stay
+    // in lockstep. Contact tasks always have errX = derrX = Zero (rigid/
+    // hold-pose convention, see updateCurrent()), so their kp/kd never
+    // actually multiply a nonzero value -- the yaml keeps them at 0.
+    YAML::Node wbc_config = YAML::LoadFile(wbc_config_yaml_path);
+    const YAML::Node &gains = wbc_config["kin_task_gain"];
+
+    auto loadTaskGain = [&gains](Task &task, int dim) {
+        const YAML::Node &g = gains[task.taskName];
+        task.kp = MatrixXd::Identity(dim, dim) * g["kp"].as<double>();
+        task.kd = MatrixXd::Identity(dim, dim) * g["kd"].as<double>();
+    };
+
+    loadTaskGain(task_left_contact,   6);
+    loadTaskGain(task_right_contact,  6);
+    loadTaskGain(task_static_contact, 6);
+    loadTaskGain(task_CoMXY,          2);
+    loadTaskGain(task_base_rpy,       3);
+    loadTaskGain(task_base_height,    1);
+    loadTaskGain(task_swing_leg,      6);
+    loadTaskGain(task_lift_foot,      6);
 }
 
 void KinWBC::printTaskInfo() {
@@ -72,15 +100,33 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
     std::vector<Task*> &kin_task = *kin_task_ptr;
     // recursive null-space priority solver
     const int nv = robot_wrapper.model_nv_;
+    // Actual current joint velocity -- used for every task's dJ*dq drift
+    // term below. This is deliberately robot_wrapper.dq (the real current
+    // velocity), NOT task.dq/parent.dq (the accumulated per-task velocity
+    // CORRECTION from the loop below) -- dJ*dq is a purely kinematic term
+    // evaluated at the robot's actual current state, same convention
+    // OpenLoong-Dyn-Control's PriorityTasks::computeAll() uses (a single
+    // "dq" parameter shared by every task, not each task's own delta_q/dq).
+    const VectorXd &dq_cur = robot_wrapper.dq;
     for (size_t i = 0; i < kin_task.size(); i++)
     {
         Task &task = *kin_task[i];
+        // Desired task-space (operational-space) acceleration: feedforward
+        // + PD on the task's own position/velocity error. Projected into
+        // joint space below via the DYNAMICALLY CONSISTENT pseudo-inverse
+        // (mass-matrix-weighted, Khatib's operational-space formulation) --
+        // NOT pseudoInv_right_weighted (which is used for delta_q/dq above/
+        // below and is only kinematically, not dynamically, consistent).
+        VectorXd ddxcmd = task.ddX_des + task.kp * task.errX + task.kd * task.derrX;
+
         if (i == 0) // 1st task in the list has the highest priority
         {
             task.N = MatrixXd::Identity(nv, nv);
             task.Jpre = task.J * task.N;
             task.delta_q = pseudoInv_right_weighted(task.Jpre, task.W) * task.errX;
             task.dq = pseudoInv_right_weighted(task.Jpre, task.W) * task.derrX;
+            task.ddq = dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
+                           * (ddxcmd - task.dJ * dq_cur);
         }
         else
         {
@@ -92,11 +138,14 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
                                                  * (task.errX - task.J * parent.delta_q);
             task.dq = parent.dq + pseudoInv_right_weighted(task.Jpre, task.W)
                                        * (task.derrX - task.J * parent.dq);
+            task.ddq = parent.ddq + dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
+                                         * (ddxcmd - task.dJ * dq_cur - task.J * parent.ddq);
         }
     }
 
     out_delta_q = kin_task.back()->delta_q;
     out_dq = kin_task.back()->dq;
+    out_ddq = kin_task.back()->ddq;
     q_des = integrateDIY(robot_wrapper.q, out_delta_q);
     return;
 

@@ -1,0 +1,90 @@
+base_pd_gain:
+  # Kp base gain
+  kp_x: 1
+  kp_y: 1
+  kp_z: 1
+  kp_roll: 1
+  kp_pitch: 1
+  kp_yaw: 1
+
+  # Kd base gain
+  kd_x: 0.1
+  kd_y: 0.1
+  kd_z: 0.1
+  kd_roll: 0.1
+  kd_pitch: 0.1
+  kd_yaw: 0.1
+
+kin_task_gain: # per-task operational-space PD gains for KinWBC's acceleration-
+               # level solve (ddxcmd = ddX_des + kp*errX + kd*derrX), see
+               # computeWBC_IK() in KinWBC.cpp. One scalar kp/kd per task
+               # (applied uniformly across that task's own dimension via
+               # Identity(dim,dim)*value), not a per-DOF-within-task gain.
+  left_contact: # rigid double-support contact -- errX/derrX are always
+    kp: 0       # Zero by construction (see updateCurrent()), so kp/kd here
+    kd: 0       # never actually multiply a nonzero value; kept at 0.
+  right_contact:
+    kp: 0
+    kd: 0
+  static_contact: # single-stance stance-foot task (walking); same rigid-
+    kp: 0          # contact convention as left_contact/right_contact above.
+    kd: 0
+  CoMXY:
+    kp: 100
+    kd: 20
+  base_rpy:
+    kp: 100
+    kd: 10
+  base_height:
+    kp: 2000 # carried over from OpenLoong-Dyn-Control's "Pz" (standing
+    kd: 10   # base-height) task -- not yet retuned for this robot.
+  swing_leg:
+    kp: 500
+    kd: 20
+  lift_foot:
+    kp: 500
+    kd: 20
+
+
+qp_cost_weight:
+
+  contact_wrench: # weight for contact wrench in the cost function
+    # contact force
+    Wr_fx: 0.01
+    Wr_fy: 0.01
+    Wr_fz: 1
+    # contact moment
+    Wr_tx: 1
+    Wr_ty: 1
+    Wr_tz: 1
+  contact_acceleration: # weight for contact acceleration in the cost function
+    Wc_x: 1
+    Wc_y: 1
+    Wc_z: 1
+    Wc_roll: 1
+    Wc_pitch: 1
+    Wc_yaw: 1
+  delta_joint_acceleration:
+    W_ddq_b: 0.1 # for base/underactuated joint
+    W_ddq_j: 0.1  # for actuated joints
+
+friction_coefficient: # to set up the friction cone constraint
+  muy: 0.5
+
+maximum_normal_contact_force: # constraint on normal contact force for a smooth contact transition
+  Fz_max: 400.0
+
+cop_constraint: # keeps the solved contact wrench's CoP (x_cop=-My/Fz,
+                 # y_cop=Mx/Fz, both in the FOOT's own local frame -- see
+                 # DynWBC::buildCoPConstraintSingle()) inside the sole's
+                 # support polygon, one box per foot in its own x(forward)/
+                 # y(lateral) axes. ESTIMATED from the left_ankle_pitch_link
+                 # foot mesh's bounding box (x: -0.066..0.136m, y:
+                 # +-0.0425m, relative to the ankle_pitch joint origin used
+                 # as the contact frame) with a ~15-20mm safety margin
+                 # inset from the physical edge -- verify/retune against
+                 # the actual sole geometry.
+  dx_lower: -0.05  # meters behind the ankle joint (heel side)
+  dx_upper:  0.12  # meters in front of the ankle joint (toe side)
+  dy_lower: -0.035 # meters, foot-local lateral -- same box applied to both
+  dy_upper:  0.035 # feet since rot_*_feet_W already reflects each foot's own mirrored frame

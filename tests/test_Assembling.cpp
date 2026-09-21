@@ -24,7 +24,7 @@ const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
 const std::string YAML_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
 const std::string YAML_WBC_DYN_CF_PATH = "config/12dof_joint_config.yaml";
-const std::string QP_WBC_CF_PATH = "config/qp_config.yaml";
+const std::string QP_WBC_CF_PATH = "config/wbc_config.yaml";
 
 char loadError[1024] = ""; // character array, size 1024
 

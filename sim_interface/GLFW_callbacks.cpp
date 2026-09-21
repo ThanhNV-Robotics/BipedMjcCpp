@@ -158,8 +158,8 @@ void UIctr::updateScene() {
     for (const auto& arr : custom_arrows_) {
         if (scn.ngeom < scn.maxgeom) {
             mjvGeom* geom = &scn.geoms[scn.ngeom];
-            mjv_initGeom(geom, mjGEOM_ARROW, nullptr, nullptr, nullptr, arr.rgba);
-            mjv_connector(geom, mjGEOM_ARROW, arr.width, arr.from, arr.to);
+            mjv_initGeom(geom, arr.type, nullptr, nullptr, nullptr, arr.rgba);
+            mjv_connector(geom, arr.type, arr.width, arr.from, arr.to);
             scn.ngeom++;
         }
     }
@@ -454,5 +454,23 @@ void UIctr::addArrow(const double pos[3], const double vec[3], double scale, con
 void UIctr::addArrow(const Eigen::Vector3d& pos, const Eigen::Vector3d& vec, double scale, const float rgba[4], double width)
 {
     addArrow(pos.data(), vec.data(), scale, rgba, width);
+}
+
+void UIctr::addLine(const Eigen::Vector3d& from, const Eigen::Vector3d& to, const float rgba[4], double widthPixels)
+{
+    VisualArrow arr;
+    arr.from[0] = from(0); arr.from[1] = from(1); arr.from[2] = from(2);
+    arr.to[0]   = to(0);   arr.to[1]   = to(1);   arr.to[2]   = to(2);
+
+    if ((to - from).norm() < 1e-4) return; // ignore degenerate segments
+
+    if (rgba) {
+        for (int i = 0; i < 4; ++i) arr.rgba[i] = rgba[i];
+    } else {
+        arr.rgba[0] = 0.2f; arr.rgba[1] = 0.8f; arr.rgba[2] = 0.2f; arr.rgba[3] = 0.6f; // default green
+    }
+    arr.width = widthPixels;
+    arr.type = mjGEOM_LINE;
+    custom_arrows_.push_back(arr);
 }
 

@@ -24,9 +24,39 @@ const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
 const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
 const std::string YAML_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
 const std::string YAML_JOINT_CF_PATH = "config/12dof_joint_config.yaml";
-const std::string YAML_QP_WBC_CF_PATH = "config/qp_config.yaml";
+const std::string YAML_QP_WBC_CF_PATH = "config/wbc_config.yaml";
 
 char loadError[1024] = ""; // character array, size 1024
+
+// Draws a wireframe friction-cone pyramid at a contact point: apex at
+// contactPos (Fr=0), base a square at height Fz_max with corners at
+// Fr=(±muy*Fz_max, ±muy*Fz_max, Fz_max) -- exactly the 4 inequality planes
+// DynWBC::U_single_ builds (eq. 12's box-pyramid approximation). Drawn with
+// plain line segments (UIctr::addLine(), no arrowhead) rather than
+// addArrow() -- 8 little arrowheads per foot made the wireframe look
+// cluttered/spiky instead of reading as a cone. Reusing the same `scale`
+// (N -> meters) as the force-vector arrows makes cone size and solved-force
+// length directly, visually comparable: the force arrow's tip should stay
+// inside this pyramid iff the QP's friction constraint is satisfied.
+static void drawFrictionCone(UIctr &uiController, const Eigen::Vector3d &contactPos,
+                              double muy, double FzMax, double scale, const float rgba[4])
+{
+    const double fx = muy * FzMax;
+    const double fy = muy * FzMax;
+    Eigen::Vector3d corners[4] = {
+        Eigen::Vector3d( fx,  fy, FzMax),
+        Eigen::Vector3d(-fx,  fy, FzMax),
+        Eigen::Vector3d(-fx, -fy, FzMax),
+        Eigen::Vector3d( fx, -fy, FzMax),
+    };
+    Eigen::Vector3d cornerPos[4];
+    for (int i = 0; i < 4; ++i)
+        cornerPos[i] = contactPos + scale * corners[i];
+    for (int i = 0; i < 4; ++i) {
+        uiController.addLine(contactPos, cornerPos[i], rgba);              // apex -> corner edge
+        uiController.addLine(cornerPos[i], cornerPos[(i + 1) % 4], rgba);  // base square edge
+    }
+}
 
 int main()
 {
@@ -51,7 +81,7 @@ int main()
     //************************************************************* */
     RobotWrapper robot_wrapper = RobotWrapper(URDF_PATH, false);
     RobotWrapper robot_wrapper_ref = RobotWrapper(URDF_PATH);
-    KinWBC kin_wbc;
+    KinWBC kin_wbc(YAML_QP_WBC_CF_PATH);
     DynWBC dyn_wbc(YAML_JOINT_CF_PATH, YAML_QP_WBC_CF_PATH, robot_wrapper, true);
     RobotSensor rb_sensors(mj_model->na);
     JoyStickInterpreter joyStick(kin_wbc.dt);
@@ -71,7 +101,6 @@ int main()
 
     PVT_Ctr pvtCtr(mj_model->opt.timestep, YAML_JOINT_CF_PATH.c_str()); // PVT joint control
     StateEstimator state_estimator(mj_model->opt.timestep, false);
-    KinWBC kinWBC_solver;
 
     //
 
@@ -122,10 +151,37 @@ int main()
     // JointRefPlot.setYLimit(-1.0, 1.0, true);
     // JointRefPlot.setLineWidth(2.0f);
 
-    // RealtimePlot ContactForcePlot(mj_model, 800, 600, "Optimal Contact Force (WBC QP)", 5.0);
-    // ContactForcePlot.setYLabel("N");
-    // ContactForcePlot.setYLimit(-20, 20.0, true);
-    // ContactForcePlot.setLineWidth(2.5f);
+    RealtimePlot ContactForcePlot(mj_model, 800, 600, "Optimal Contact Force (WBC QP)", 5.0);
+    ContactForcePlot.setYLabel("N");
+    ContactForcePlot.setYLimit(-2, 2, true); // baseline only -- auto-extends if Fr goes further
+    ContactForcePlot.setLineWidth(2.5f);
+
+    RealtimePlot ContactMomentPlot(mj_model, 800, 600, "Optimal Contact Moment (WBC QP)", 5.0);
+    ContactMomentPlot.setYLabel("N*m");
+    ContactMomentPlot.setYLimit(-2, 2, true); // baseline only -- auto-extends if Fr's moment components go further
+    ContactMomentPlot.setLineWidth(2.5f);
+
+    // Vector/cone visualization colors: left foot force red, right foot
+    // force blue, both cones a translucent green (alpha<1 so overlapping
+    // cone edges at the two feet stay legible).
+    const float colorLeftForce[4]  = {1.0f, 0.1f, 0.1f, 1.0f};
+    const float colorRightForce[4] = {0.1f, 0.3f, 1.0f, 1.0f};
+    const float colorCone[4]       = {0.2f, 0.8f, 0.2f, 0.35f};
+    // Cone scale: N -> meters for drawFrictionCone()'s pyramid only. Cone
+    // height = Fz_max * coneScale (eq. 13's bound, 400N) -- 0.002 made it
+    // 0.8m tall, about as tall as the robot itself; 0.0004 keeps it a
+    // comparable size to a foot instead (0.16m).
+    const double coneScale = 0.0004;
+    // Force-arrow scale: N -> meters for the actual solved Fr, kept
+    // separate (and larger) from coneScale so the arrow stays clearly
+    // visible even though actual standing forces are a small fraction of
+    // Fz_max -- e.g. Fr_z ~150N draws at ~0.3m here vs. ~0.06m at
+    // coneScale. Tradeoff: with arrowScale > coneScale the arrow no longer
+    // renders literally to-scale against the cone (it'll look larger
+    // relative to the cone than the real Fr/Fz_max ratio), so "tip inside
+    // the cone" is a rough visual check, not an exact one -- if that
+    // matters more than visibility, set this equal to coneScale instead.
+    const double forceArrowScale = 0.002;
 
     // Duration to ramp joints to qIniDes
     const double rampDuration = 2.0;
@@ -134,6 +190,22 @@ int main()
     bool goUp = false;
     bool goDown = false;
     VectorXd tau_wbc;
+    double lastQPStatusPrintTime = -1.0;
+    const double qpStatusPrintPeriod = 1.0 / 5.0; // 5 Hz
+
+    // Latest QP-solved contact wrench, cached from the physics-tick loop and
+    // drawn/rendered only ONCE per rendered frame (below, right before
+    // updateScene()) -- the inner while loop runs several mj_step()s per
+    // frame (model timestep << 1/60s), and addArrow() calls accumulate into
+    // custom_arrows_ until updateScene() clears it, so drawing every tick
+    // stacked several ticks' worth of arrows on top of each other each
+    // frame (the "weird"/cluttered look).
+    Eigen::Vector3d lastContactForcePos_L = Eigen::Vector3d::Zero();
+    Eigen::Vector3d lastContactForcePos_R = Eigen::Vector3d::Zero();
+    Eigen::Vector3d lastFr_L = Eigen::Vector3d::Zero();
+    Eigen::Vector3d lastFr_R = Eigen::Vector3d::Zero();
+    bool haveContactForce = false;
+
     while (!glfwWindowShouldClose(uiController.window))
     {
         simstart = mj_data->time;
@@ -168,8 +240,6 @@ int main()
                 footPlanner.legLength = robot_wrapper.pos_base_W(2);
                 joystick_initialized = true;
                 std::cout << "[t=" << simTime << "] Joystick initialized to measured base height: " << robot_wrapper.pos_base_W(2) << "\n";
-                dyn_wbc.updateRobotState(robot_wrapper, state_estimator);
-                dyn_wbc.setupQPproblem(robot_wrapper);
             }
 
             if (joystick_initialized)
@@ -182,7 +252,7 @@ int main()
                     if (goDown) {
                         goDown = false;
                         goUp = true;
-                        joyStick.setPzRef(0.80, 3.0);
+                        joyStick.setPzRef(0.78, 3.0);
                         // std::cout << "[t=" << simTime << "] base height target -> 0.80m\n";
                     } else {
                         goDown = true;
@@ -192,26 +262,92 @@ int main()
                     }
                 }
 
-                robot_wrapper.computeKin();
-                robot_wrapper_ref.computeKin();
-                // In standing mode, keep desired CoM centered between the feet
-                cp_planner.xc_ = 0.0;
-                cp_planner.yc_ = 0.0;
-                cp_planner.d_xc_ = 0.0;
-                cp_planner.d_yc_ = 0.0;
+                // robot_wrapper.computeKin() already ran earlier this tick
+                // (see the top of the outer while loop) -- kinematics are
+                // fresh, no need to redo it here.
+                // computeWBC_IK() now also solves for out_ddq (dynamically-
+                // consistent acceleration-level IK, see KinWBC.cpp), which
+                // needs robot_wrapper.dyn_M_inv populated -- otherwise
+                // (e.g. on the very first tick, before computeDyn() has ever
+                // run) it's an empty 0x0 matrix. NOTE: dyn_wbc.solveWBQP()
+                // below calls robot_wrapper.computeDyn() again on its own
+                // (inside updateRobotState()) -- computeDyn() currently
+                // runs twice per tick on the same state as a result; a real
+                // (if currently harmless) inefficiency worth deduplicating
+                // later rather than right now.
+                robot_wrapper.computeDyn();
+                // CoM target stays centered between the feet (xc_/yc_/d_xc_/
+                // d_yc_ = 0) -- CP_Planning's constructor already zero-inits
+                // these, and nothing in this file ever mutates cp_planner
+                // afterward (computeCoM()/planWarmingUp()/planWalking() are
+                // never called here), so no per-tick reset is needed.
 
-                kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper_ref, cp_planner, gaitScheduler);
+                kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler);
 
-                const double stepSize = 1.0;
-                robot_wrapper_ref.integrateConfig(stepSize * kin_wbc.out_delta_q);
-                robot_wrapper_ref.dq = kin_wbc.out_dq;
-                robot_wrapper_ref.computeKin();
+                // const double stepSize = 1.0;
+                // robot_wrapper_ref.integrateConfig(stepSize * kin_wbc.out_delta_q);
+                // robot_wrapper_ref.dq = kin_wbc.out_dq;
+                // robot_wrapper_ref.computeKin();
 
-                // Drive the robot with plain joint-space PD tracking of the
-                // KinWBC-generated reference (position + velocity).
+                dyn_wbc.solveWBQP(kin_wbc, robot_wrapper, state_estimator);
+
+                if (simTime - lastQPStatusPrintTime >= qpStatusPrintPeriod) {
+                    lastQPStatusPrintTime = simTime;
+                    std::cout << "[t=" << simTime << "] QP status: "
+                              << (dyn_wbc.getQPStatus() ? "OK" : "FAILED")
+                              << "  |dq|=" << dyn_wbc.getDqNorm()
+                              << "  solve_time=" << dyn_wbc.getLastSolveTimeUs() << "us"
+                              << "  nWSR=" << dyn_wbc.getLastNWSR()
+                              << "  base_z=" << robot_wrapper.pos_base_W(2)
+                              << "  target_z=" << joyStick.pz_W << std::endl;
+                }
+
+                // Cache the QP-solved contact wrench for this tick -- the
+                // actual drawing happens once per rendered frame (see below,
+                // right before updateScene()), not here. Still push the
+                // plot points every tick though, so ContactForcePlot gets
+                // dense (1kHz-ish) data rather than one point per frame.
+                // getOptimalContactWrench() is only meaningful when the QP
+                // actually solved this tick -- DSt-only layout, left foot
+                // first (see DynWBC::setupQPproblem()'s Jc_ stacking).
+                if (dyn_wbc.getQPStatus()) {
+                    VectorXd Fr = dyn_wbc.getOptimalContactWrench();
+                    lastFr_L = Fr.segment<3>(0);
+                    lastFr_R = Fr.segment<3>(6);
+                    Eigen::Vector3d Mr_L = Fr.segment<3>(3); // left contact moment (tx,ty,tz)
+                    Eigen::Vector3d Mr_R = Fr.segment<3>(9); // right contact moment (tx,ty,tz)
+                    lastContactForcePos_L = robot_wrapper.pos_L_feet_W;
+                    lastContactForcePos_R = robot_wrapper.pos_R_feet_W;
+                    haveContactForce = true;
+
+                    // ContactForcePlot.addPoint("Fx_L", simTime, lastFr_L(0));
+                    ContactForcePlot.addPoint("Fy_L", simTime, lastFr_L(1));
+                    // ContactForcePlot.addPoint("Fz_L", simTime, lastFr_L(2));
+                    // ContactForcePlot.addPoint("Fx_R", simTime, lastFr_R(0));
+                    ContactForcePlot.addPoint("Fy_R", simTime, lastFr_R(1));
+                    // ContactForcePlot.addPoint("Fz_R", simTime, lastFr_R(2));
+
+                    ContactMomentPlot.addPoint("Tx_L", simTime, Mr_L(0));
+                    ContactMomentPlot.addPoint("Ty_L", simTime, Mr_L(1));
+                    ContactMomentPlot.addPoint("Tz_L", simTime, Mr_L(2));
+                    ContactMomentPlot.addPoint("Tx_R", simTime, Mr_R(0));
+                    ContactMomentPlot.addPoint("Ty_R", simTime, Mr_R(1));
+                    ContactMomentPlot.addPoint("Tz_R", simTime, Mr_R(2));
+                }
+
+                // Drive the robot with joint-space PD tracking of the
+                // KinWBC-generated reference (position + velocity), PLUS
+                // the DynWBC QP's feedforward joint torque (consistent
+                // with the actually-solved contact wrench, not just the
+                // kinematic reference) -- same pattern PVT_Ctr::calMotorsPVT()
+                // already implements (tauDes = Kp*posErr + Kd*velErr +
+                // tau_ff, then clamped to maxTor), matching how OpenLoong-
+                // Dyn-Control's WBC output is consumed downstream.
                 VectorXd ref_pos = kin_wbc.getMotorPosDes(); // kin_wbc.q_des joint segment
                 VectorXd ref_vel = kin_wbc.out_dq.tail(robot_wrapper.model_na_);
-                VectorXd tau_ff = VectorXd::Zero(robot_wrapper.model_na_);
+                VectorXd tau_ff = dyn_wbc.getQPStatus()
+                                       ? dyn_wbc.getOptimalJointTorque()
+                                       : VectorXd::Zero(robot_wrapper.model_na_);
                 pvtCtr.getFeedbackMotorState(robot_wrapper);
                 pvtCtr.calMotorsPVT(ref_pos, ref_vel, tau_ff);
                 mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor);
@@ -231,7 +367,21 @@ int main()
             }
         }
 
+        // Draw the QP-solved contact wrench once per rendered frame (using
+        // whatever the last physics tick this frame produced) -- force
+        // vector + friction-cone wireframe at each foot. custom_arrows_ is
+        // cleared inside updateScene() right after rendering, so this is a
+        // true one-shot-per-frame draw, not accumulated across ticks.
+        if (haveContactForce) {
+            uiController.addArrow(lastContactForcePos_L, lastFr_L, forceArrowScale, colorLeftForce);
+            uiController.addArrow(lastContactForcePos_R, lastFr_R, forceArrowScale, colorRightForce);
+            drawFrictionCone(uiController, lastContactForcePos_L, dyn_wbc.getMuy(), dyn_wbc.getFzMax(), coneScale, colorCone);
+            drawFrictionCone(uiController, lastContactForcePos_R, dyn_wbc.getMuy(), dyn_wbc.getFzMax(), coneScale, colorCone);
+        }
+        ContactForcePlot.render();
+        ContactMomentPlot.render();
         uiController.updateScene();
+        
     }
 
     // free visualization storage

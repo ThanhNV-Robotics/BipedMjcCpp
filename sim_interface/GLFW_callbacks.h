@@ -93,9 +93,15 @@ public:
         mjtNum to[3];
         float rgba[4];
         mjtNum width;
+        int type{mjGEOM_ARROW}; // mjGEOM_ARROW (default) or mjGEOM_LINE (plain segment, no arrowhead -- e.g. a friction-cone wireframe)
     };
     void addArrow(const double pos[3], const double vec[3], double scale = 0.002, const float rgba[4] = nullptr, double width = 0.012);
     void addArrow(const Eigen::Vector3d& pos, const Eigen::Vector3d& vec, double scale = 0.002, const float rgba[4] = nullptr, double width = 0.012);
+    // Plain line segment between two absolute world points, no arrowhead --
+    // for wireframes (e.g. friction cones) where addArrow()'s arrowhead per
+    // edge would look cluttered. widthPixels is in screen pixels (mjGEOM_LINE
+    // convention), not world units.
+    void addLine(const Eigen::Vector3d& from, const Eigen::Vector3d& to, const float rgba[4] = nullptr, double widthPixels = 1.5);
     void clearArrows() { custom_arrows_.clear(); }
 
 private:

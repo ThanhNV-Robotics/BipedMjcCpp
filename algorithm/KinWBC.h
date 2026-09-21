@@ -36,7 +36,7 @@ struct Task {
 class KinWBC {
 public:
     // Constructor
-    KinWBC ();
+    KinWBC (const std::string &wbc_config_yaml_path);
     // member tasks
     Task task_left_contact  = Task("left_contact"); // input 1 to access to left_feet (jacobian, position, vel)
     Task task_right_contact  = Task("right_contact"); // input 2 to access to right_feet (jacobian, position, vel)
