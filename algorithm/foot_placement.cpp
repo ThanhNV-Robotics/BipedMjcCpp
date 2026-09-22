@@ -11,12 +11,12 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include <cmath>
 #include <yaml-cpp/yaml.h>
 
-FootPlacement::FootPlacement(const std::string &yamlPath)
+FootPlacement::FootPlacement(const std::string &yamlPath, RobotWrapper &robot_wrapper)
 {
     YAML::Node root = YAML::LoadFile(yamlPath);
     const YAML::Node &fp = root["foot_placement"];
     stepHeight = fp["stepHeight"].as<double>();
-    hip_width  = fp["hip_width"].as<double>();
+    hip_width  = robot_wrapper.hip_width_;
     xOff_L     = fp["x_offset"].as<double>();
     yOff_L     = fp["y_offset"].as<double>();
     zOff_W     = fp["z_offset"].as<double>();

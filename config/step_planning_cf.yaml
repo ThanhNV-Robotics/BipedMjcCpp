@@ -6,7 +6,6 @@ gait_scheduler:
 
 foot_placement:
   stepHeight: 0.05 # peak swing-foot lift height, meters
-  hip_width: 0.334 # lateral hip separation, meters -- must match computeInitial_Stand()'s width_hips (robot_wrapper.cpp)
   x_offset: 0.0  # foot-end position offset in x direction, body frame (forward)
   y_offset: 0.0  # foot-end position offset in y direction, body frame (lateral, positive = inward)
   z_offset: 0.0 # foot-end position offset in z direction, world frame (vertical)

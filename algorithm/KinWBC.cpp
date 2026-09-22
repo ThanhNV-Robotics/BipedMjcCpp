@@ -108,6 +108,13 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
     // OpenLoong-Dyn-Control's PriorityTasks::computeAll() uses (a single
     // "dq" parameter shared by every task, not each task's own delta_q/dq).
     const VectorXd &dq_cur = robot_wrapper.dq;
+    // out_ddq's dynamically-consistent solve needs robot_wrapper.dyn_M_inv
+    // populated by a prior computeDyn() call -- callers that only care
+    // about the kinematic outputs (out_delta_q/out_dq/q_des), e.g. pure
+    // forward-kinematics test rigs that never call computeDyn(), would
+    // otherwise segfault here (dyn_pseudoInv() against an empty 0x0
+    // matrix). Skip the ddq solve and leave it zero in that case.
+    const bool haveDynMInv = (robot_wrapper.dyn_M_inv.rows() == nv && robot_wrapper.dyn_M_inv.cols() == nv);
     for (size_t i = 0; i < kin_task.size(); i++)
     {
         Task &task = *kin_task[i];
@@ -125,8 +132,11 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
             task.Jpre = task.J * task.N;
             task.delta_q = pseudoInv_right_weighted(task.Jpre, task.W) * task.errX;
             task.dq = pseudoInv_right_weighted(task.Jpre, task.W) * task.derrX;
-            task.ddq = dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
-                           * (ddxcmd - task.dJ * dq_cur);
+            if (haveDynMInv)
+                task.ddq = dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
+                               * (ddxcmd - task.dJ * dq_cur);
+            else
+                task.ddq = VectorXd::Zero(nv);
         }
         else
         {
@@ -138,8 +148,11 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
                                                  * (task.errX - task.J * parent.delta_q);
             task.dq = parent.dq + pseudoInv_right_weighted(task.Jpre, task.W)
                                        * (task.derrX - task.J * parent.dq);
-            task.ddq = parent.ddq + dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
-                                         * (ddxcmd - task.dJ * dq_cur - task.J * parent.ddq);
+            if (haveDynMInv)
+                task.ddq = parent.ddq + dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
+                                             * (ddxcmd - task.dJ * dq_cur - task.J * parent.ddq);
+            else
+                task.ddq = VectorXd::Zero(nv);
         }
     }
 

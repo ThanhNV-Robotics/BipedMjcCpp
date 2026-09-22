@@ -20,8 +20,8 @@
 
 using namespace std;
 
-const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
-const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
+const std::string URDF_PATH = "models/urdf/v2_biped_robot_12dof.urdf";
+const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof_v2.xml";
 const std::string YAML_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
 const std::string YAML_JOINT_CF_PATH = "config/12dof_joint_config.yaml";
 const std::string YAML_QP_WBC_CF_PATH = "config/wbc_config.yaml";
@@ -86,7 +86,7 @@ int main()
     RobotSensor rb_sensors(mj_model->na);
     JoyStickInterpreter joyStick(kin_wbc.dt);
     MyGaitScheduler gaitScheduler(YAML_PLANNING_CF_PATH, kin_wbc.dt);
-    FootPlacement footPlanner(YAML_PLANNING_CF_PATH);
+    FootPlacement footPlanner(YAML_PLANNING_CF_PATH, robot_wrapper);
 
     const double dt = kin_wbc.dt;
     const double zc = 0.5;
@@ -104,7 +104,7 @@ int main()
 
     //
 
-    const double init_base_height = 0.755;
+    const double init_base_height = 0.8;
     VectorXd qIniDes = robot_wrapper.computeInitial_Stand(init_base_height);
     printf("Init standing joint config: \n");
     std::cout << qIniDes.transpose() << std::endl;
@@ -151,6 +151,11 @@ int main()
     // JointRefPlot.setYLimit(-1.0, 1.0, true);
     // JointRefPlot.setLineWidth(2.0f);
 
+    RealtimePlot BaseHeightPlot(mj_model, 800, 600, "Base Height (Reference vs Estimated)", 5.0);
+    BaseHeightPlot.setYLabel("meters");
+    BaseHeightPlot.setYLimit(0.70, 0.90, true); // baseline only -- auto-extends if the target/estimate goes further
+    BaseHeightPlot.setLineWidth(2.5f);
+
     RealtimePlot ContactForcePlot(mj_model, 800, 600, "Optimal Contact Force (WBC QP)", 5.0);
     ContactForcePlot.setYLabel("N");
     ContactForcePlot.setYLimit(-2, 2, true); // baseline only -- auto-extends if Fr goes further
@@ -184,7 +189,7 @@ int main()
     const double forceArrowScale = 0.002;
 
     // Duration to ramp joints to qIniDes
-    const double rampDuration = 2.0;
+    const double rampDuration = 3.0;
     bool joystick_initialized = false;
     bool joystick_control_start = false;
     bool goUp = false;
@@ -221,7 +226,7 @@ int main()
 
             // After 2 seconds, initialize the joystick to hold the CURRENT
             // measured base height (neutral -- no motion commanded yet).
-            if (simTime >= 2.0 && !joystick_initialized)
+            if (simTime >= rampDuration && !joystick_initialized)
             {
                 joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_base_W(2), 0.0);
                 joyStick.setMotionState(MotionState::STAND);
@@ -229,7 +234,8 @@ int main()
                 joyStick.setVyDesLPara(0.0, 0.1);
                 joyStick.setWzDesLPara(0.0, 0.1);
 
-                joyStick.setPzRef(0.75, 3.0);
+                joyStick.setPzRef(0.82, 3.0);
+                joyStick.setPitchRef(0.15, 3.0);
                 goDown = true;
                 goUp = false;
 
@@ -246,41 +252,27 @@ int main()
             {
                 joyStick.step();
                 gaitScheduler.step(joyStick);
+
+                BaseHeightPlot.addPoint("Reference Pz", simTime, joyStick.pz_W);
+                BaseHeightPlot.addPoint("Estimated Pz", simTime, robot_wrapper.pos_base_W(2));
+
                 // Oscillate the base-height target between 0.75m and 0.80m --
                 if (joyStick.PzLGen.isReachDes())
                 {
                     if (goDown) {
                         goDown = false;
                         goUp = true;
-                        joyStick.setPzRef(0.78, 3.0);
+                        joyStick.setPzRef(0.84, 4.0);
                         // std::cout << "[t=" << simTime << "] base height target -> 0.80m\n";
                     } else {
                         goDown = true;
                         goUp = false;
-                        joyStick.setPzRef(0.75, 3.0);
+                        joyStick.setPzRef(0.81, 4.0);
                         // std::cout << "[t=" << simTime << "] base height target -> 0.75m\n";
                     }
                 }
 
-                // robot_wrapper.computeKin() already ran earlier this tick
-                // (see the top of the outer while loop) -- kinematics are
-                // fresh, no need to redo it here.
-                // computeWBC_IK() now also solves for out_ddq (dynamically-
-                // consistent acceleration-level IK, see KinWBC.cpp), which
-                // needs robot_wrapper.dyn_M_inv populated -- otherwise
-                // (e.g. on the very first tick, before computeDyn() has ever
-                // run) it's an empty 0x0 matrix. NOTE: dyn_wbc.solveWBQP()
-                // below calls robot_wrapper.computeDyn() again on its own
-                // (inside updateRobotState()) -- computeDyn() currently
-                // runs twice per tick on the same state as a result; a real
-                // (if currently harmless) inefficiency worth deduplicating
-                // later rather than right now.
                 robot_wrapper.computeDyn();
-                // CoM target stays centered between the feet (xc_/yc_/d_xc_/
-                // d_yc_ = 0) -- CP_Planning's constructor already zero-inits
-                // these, and nothing in this file ever mutates cp_planner
-                // afterward (computeCoM()/planWarmingUp()/planWalking() are
-                // never called here), so no per-tick reset is needed.
 
                 kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler);
 
@@ -378,6 +370,7 @@ int main()
             drawFrictionCone(uiController, lastContactForcePos_L, dyn_wbc.getMuy(), dyn_wbc.getFzMax(), coneScale, colorCone);
             drawFrictionCone(uiController, lastContactForcePos_R, dyn_wbc.getMuy(), dyn_wbc.getFzMax(), coneScale, colorCone);
         }
+        BaseHeightPlot.render();
         ContactForcePlot.render();
         ContactMomentPlot.render();
         uiController.updateScene();

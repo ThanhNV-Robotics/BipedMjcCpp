@@ -6,6 +6,7 @@
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/multibody/fwd.hpp>
+#include <stdexcept>
 #include <vector>
 
 //  Openning note: 
@@ -135,6 +136,20 @@ RobotWrapper::RobotWrapper(const std::string& urdf_path, bool verbose)
         {
             right_leg_joint_ids_.push_back(j_index);
         }
+    }
+
+    // hip_width_: distance between the two hip_roll joints' frame origins
+    // along Y, at the neutral configuration -- see the member's doc
+    // comment in robot_wrapper.h. A throwaway pin::Data (not pin_data_) so
+    // this doesn't disturb any state computeKin() relies on later.
+    if (!pin_model_.existJointName("left_hip_roll_joint") || !pin_model_.existJointName("right_hip_roll_joint"))
+        throw std::runtime_error("RobotWrapper: URDF missing left_hip_roll_joint/right_hip_roll_joint, needed to compute hip_width_");
+    {
+        pin::Data neutral_data(pin_model_);
+        pin::forwardKinematics(pin_model_, neutral_data, pin::neutral(pin_model_));
+        const double left_hip_y = neutral_data.oMi[pin_model_.getJointId("left_hip_roll_joint")].translation().y();
+        const double right_hip_y = neutral_data.oMi[pin_model_.getJointId("right_hip_roll_joint")].translation().y();
+        hip_width_ = std::abs(left_hip_y - right_hip_y);
     }
 
     // assign joint limit
@@ -580,10 +595,8 @@ VectorXd RobotWrapper::computeInitial_Stand(const double base_height)
     const double foot_height = 0.07; // distance between the foot ankel joint and the bottom
     const double  xv_des = 0.7;  // desired velocity in x direction
 
-    const double width_hips = 0.334;
-
-    Vector3d fe_l_pos_L_des = {0.0, width_hips / 2, -base_height};  // desired left feet pos
-    Vector3d fe_r_pos_L_des = {0.0, -width_hips / 2, -base_height}; // desired right feet pos
+    Vector3d fe_l_pos_L_des = {0.0, hip_width_ / 2, -base_height};  // desired left feet pos
+    Vector3d fe_r_pos_L_des = {0.0, -hip_width_ / 2, -base_height}; // desired right feet pos
 
     Vector3d fe_l_eul_L_des = {0.0, 0.0, 0.0};
     Vector3d fe_r_eul_L_des = {0.0, 0.0, 0.0};

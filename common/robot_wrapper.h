@@ -52,6 +52,13 @@ class RobotWrapper {
         // joint_vel/torque_limit_, computeInitial_Stand()'s return value, etc.
         std::vector<std::string> jointNames_;
 
+        // Lateral distance between the two hip_roll joints' frame origins
+        // (URDF's "left_hip_roll_joint"/"right_hip_roll_joint"), along Y,
+        // at the neutral configuration -- computed once in the constructor
+        // from the URDF instead of being hardcoded. Used by
+        // computeInitial_Stand() for its stance-width leg IK target.
+        double hip_width_;
+
         //*********************************************** */
         // configuration space
         // TODO: Move q, dq, ddq to private once test files are refactored to not write to them directly.

@@ -15,14 +15,14 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 #include "my_gait_scheduler.h"
 #include "joystick_interpreter.h"
 #include "CP_Planning.h"
-
+#include "robot_wrapper.h"
 class FootPlacement
 {
 public:
     double kp_vx{0}, kp_vy{0}, kp_wz{0};
     double legLength{1};
     double stepHeight{0.05};
-    double hip_width{0.334}; // fixed geometry constant (was DataBus-sourced runtime state); matches computeInitial_Stand()'s width_hips
+    double hip_width; // fixed geometry constant (was DataBus-sourced runtime state); matches computeInitial_Stand()'s width_hips
     // foot-end placement offsets, in body frame (x/y) and world frame (z).
     // Loaded from yaml foot_placement: x_offset / y_offset / z_offset.
     double xOff_L{0.0};  // body-frame forward offset
@@ -32,7 +32,7 @@ public:
     double tSwing{0.4}; // swing time
     // yamlPath's "foot_placement:" block supplies stepHeight/hip_width/offsets --
     // see config/step_planning_cf.yaml
-    FootPlacement(const std::string &yamlPath);
+    FootPlacement(const std::string &yamlPath, RobotWrapper &robot_wrapper);
     Eigen::Vector3d posStart_W, posDes_W, hipPos_W;
     Eigen::Vector3d desV_W, curV_W;
     double desWz_W;

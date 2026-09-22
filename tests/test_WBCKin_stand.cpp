@@ -14,9 +14,10 @@
 #include "my_gait_scheduler.h"
 #include "CP_Planning.h"
 
-const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
-const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
+const std::string URDF_PATH = "models/urdf/v2_biped_robot_12dof.urdf";
+const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof_v2.xml";
 const std::string STEP_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
+const std::string YAML_QP_WBC_CF_PATH = "config/wbc_config.yaml";
 
 // Pure forward-kinematics check of KinWBC::computeWBC_IK() -- no MuJoCo
 // physics (mj_step) involved at all. Each iteration: recompute Jacobians/
@@ -38,12 +39,12 @@ int main()
     mjData *mj_data = mj_makeData(mj_model);
 
     RobotWrapper robot_wrapper(URDF_PATH);
-    KinWBC kin_wbc;
+    KinWBC kin_wbc(YAML_QP_WBC_CF_PATH);
     JoyStickInterpreter joyStick(kin_wbc.dt);
     MyGaitScheduler gaitScheduler(STEP_PLANNING_CF_PATH, kin_wbc.dt);
-    FootPlacement footPlanner(STEP_PLANNING_CF_PATH);
+    FootPlacement footPlanner(STEP_PLANNING_CF_PATH, robot_wrapper);
     const double dt = 0.001;
-    const double zc = 0.35;
+    const double zc = 0.6;
     CP_Planning cp_planning(dt, zc, footPlanner.hip_width);
 
     // per-joint MuJoCo qpos/qvel address, looked up by name in
@@ -84,18 +85,28 @@ int main()
     CoMPlot.setYLimit(-0.1, 0.1);
     CoMPlot.setLineWidth(2.5f);
 
-    // Initial configuration: home position (all actuated joints are 0)
+    // Initial configuration: load directly at the bent-knee stand pose
+    // (computeInitial_Stand()) instead of the straight-leg home pose --
+    // computeWBC_IK()'s null-space IK is unstable starting from straight
+    // legs (near-singular leg Jacobian), so just start bent, no ramp.
     robot_wrapper.q.segment(7, robot_wrapper.model_na_).setZero();
-
-    // Determine base height so feet rest on ground (z = 0) at home configuration
     robot_wrapper.q(2) = 0.0;
     robot_wrapper.computeKin();
-    const double initial_leg_length = -robot_wrapper.pos_L_feet_W(2);
-    robot_wrapper.q(2) = initial_leg_length;
+    const double straight_leg_length = -robot_wrapper.pos_L_feet_W(2); // max reach, straight legs
+
+    // computeInitial_Stand(h) solves a closed-form leg IK for a base-to-
+    // foot distance of exactly h -- commanding straight_leg_length (the
+    // max reach) back into it just returns ~straight legs again, since
+    // that's the only way to reach that far. Bending the knees needs a
+    // meaningfully SHORTER target distance instead.
+    const double standLegLength = 0.8; // 
+    robot_wrapper.q(2) = standLegLength;
+    robot_wrapper.q.segment(7, robot_wrapper.model_na_) = robot_wrapper.computeInitial_Stand(standLegLength);
     robot_wrapper.computeKin();
 
     footPlanner.legLength = robot_wrapper.pos_base_W(2);
-    std::cout << "Initial home base height: " << robot_wrapper.pos_base_W(2) << "\n";
+    std::cout << "Straight-leg reach: " << straight_leg_length
+               << "  Initial bent-knee base height: " << robot_wrapper.pos_base_W(2) << "\n";
 
     const double stepSize = 1.0;
 
@@ -105,7 +116,7 @@ int main()
     joyStick.setVxDesLPara(0.0, 0.1); // zero horizontal velocities for standing
     joyStick.setVyDesLPara(0.0, 0.1);
     joyStick.setWzDesLPara(0.0, 0.1);
-    joyStick.setPzRef(robot_wrapper.pos_base_W(2), 0.01); // hold initial home height
+    joyStick.setPzRef(robot_wrapper.pos_base_W(2), 0.01); // hold the bent-knee height
 
     cp_planning.xc_ = robot_wrapper.pos_CoM_W(0);
     cp_planning.yc_ = robot_wrapper.pos_CoM_W(1);
@@ -113,25 +124,32 @@ int main()
     cp_planning.d_yc_ = 0.0;
 
     double simTime = 0.0;
-    bool stand_started = false;
+    const double warmUpStartTime = 2.0; // let the STAND-mode IK settle at the bent-knee pose first
+    bool warmUpStarted = false;
 
     while (!glfwWindowShouldClose(uiController.window))
     {
         double frameStart = simTime;
         while (uiController.runSim && (simTime - frameStart) < 1.0 / 60.0) // press "1" to pause/resume, "2" to step
         {
-
-            if (simTime >= 1.0 && !stand_started)
+            if (simTime >= warmUpStartTime && !warmUpStarted)
             {
-                joyStick.setPzRef(0.72, 2.0); // command base height to 0.72m in 2 seconds
-                stand_started = true;
-                std::cout << "[t=" << simTime << "] Commanding base height to 0.72m in 2 seconds\n";
+                joyStick.setMotionState(MotionState::WARM_UP);
+                gaitScheduler.start(joyStick);
+                warmUpStarted = true;
+                std::cout << "[t=" << simTime << "] Starting warm-up CoM sway\n";
             }
 
             robot_wrapper.computeKin();
 
             joyStick.step();
-            gaitScheduler.step(joyStick); // keep state in MotionState::STAND
+            gaitScheduler.step(joyStick);
+
+            if (warmUpStarted)
+            {
+                cp_planning.planWarmingUp(gaitScheduler);
+                footPlanner.StepSwingPlanning(robot_wrapper, gaitScheduler, joyStick, cp_planning);
+            }
 
             kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planning, gaitScheduler);
             robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
@@ -141,7 +159,7 @@ int main()
             // Visualize on MuJoCo: puppet qpos/qvel from robot_wrapper kinematics
             mj_data->qpos[freeQposAdr + 0] = robot_wrapper.q(0);
             mj_data->qpos[freeQposAdr + 1] = robot_wrapper.q(1);
-            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2);
+            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2) + 0.08;
             mj_data->qpos[freeQposAdr + 3] = robot_wrapper.q(6); // w
             mj_data->qpos[freeQposAdr + 4] = robot_wrapper.q(3); // x
             mj_data->qpos[freeQposAdr + 5] = robot_wrapper.q(4); // y

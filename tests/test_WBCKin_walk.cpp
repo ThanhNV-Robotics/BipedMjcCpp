@@ -15,10 +15,10 @@
 #include "my_gait_scheduler.h"
 #include "CP_Planning.h"
 
-const std::string URDF_PATH = "models/urdf/biped_robot_12dof.urdf";
-const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof.xml";
+const std::string URDF_PATH = "models/urdf/v2_biped_robot_12dof.urdf";
+const std::string XML_PATH = "models/mjcf/scene_floatingbase_12dof_v2.xml";
 const std::string STEP_PLANNING_CF_PATH = "config/step_planning_cf.yaml";
-
+const std::string YAML_QP_WBC_CF_PATH = "config/wbc_config.yaml";
 int main()
 {
     char loadError[1024] = "";
@@ -31,13 +31,13 @@ int main()
     mjData *mj_data = mj_makeData(mj_model);
 
     RobotWrapper robot_wrapper(URDF_PATH);
-    KinWBC kin_wbc;
+    KinWBC kin_wbc(YAML_QP_WBC_CF_PATH);
     JoyStickInterpreter joyStick(kin_wbc.dt);
     MyGaitScheduler gaitScheduler(STEP_PLANNING_CF_PATH, kin_wbc.dt);
-    FootPlacement footPlanner(STEP_PLANNING_CF_PATH);
+    FootPlacement footPlanner(STEP_PLANNING_CF_PATH, robot_wrapper);
     const double dt = 0.001;
     const double zc = 0.5;
-    CP_Planning cp_planner(dt, zc, footPlanner.hip_width);
+    CP_Planning cp_planner(dt, zc, robot_wrapper.hip_width_);
 
     // per-joint MuJoCo qpos/qvel address, looked up by name in
     // robot_wrapper.jointNames_'s order (Pinocchio/URDF order) -- matches
@@ -83,7 +83,7 @@ int main()
 
     // Initially starting at a bended configuration to avoid singularity
 
-    const double standLegLength = 0.72;
+    const double standLegLength = 0.8;
     robot_wrapper.q(2) = standLegLength; // init initial base height
     robot_wrapper.q.segment(7, robot_wrapper.model_na_) = robot_wrapper.computeInitial_Stand(standLegLength);
     footPlanner.legLength = standLegLength; // StepSwingPlanning()'s swing-foot z target is base height minus this --
@@ -163,7 +163,7 @@ int main()
             // ever physically simulated, only kinematically displayed
             mj_data->qpos[freeQposAdr + 0] = robot_wrapper.q(0);
             mj_data->qpos[freeQposAdr + 1] = robot_wrapper.q(1);
-            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2) + 0.05;
+            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2) + 0.1;
             // // MuJoCo's free-joint quaternion order is (w,x,y,z); Pinocchio's
             // // q.segment<4>(3) coeffs order is (x,y,z,w)
             mj_data->qpos[freeQposAdr + 3] = robot_wrapper.q(6); // w
