@@ -30,14 +30,22 @@ kin_task_gain: # per-task operational-space PD gains for KinWBC's acceleration-
     kp: 0          # contact convention as left_contact/right_contact above.
     kd: 0
   CoMXY:
-    kp: 100
-    kd: 20
+    kp: 100 # restored to the pre-session (HEAD "update to test with v2")
+    kd: 20  # value -- only DynWBC's ddq path reads this (test_WBCKin_stand/
+            # walk never call computeDyn(), so kp/kd is inert there); a
+            # since-reverted experiment dropped this to kp=1/kd=0.1, too
+            # weak to actively resist gravity/disturbance in that path,
+            # part of why DynWBC's QP saw the robot slowly collapse instead
+            # of holding its stand.
   base_rpy:
     kp: 100
     kd: 10
   base_height:
-    kp: 2000 # carried over from OpenLoong-Dyn-Control's "Pz" (standing
-    kd: 10   # base-height) task -- not yet retuned for this robot.
+    kp: 2000 # restored to HEAD's original value, carried over from
+    kd: 10   # OpenLoong-Dyn-Control's "Pz" (standing base-height) task.
+  CoMZc: # same role as base_height but constrains the CoM's own Z instead
+    kp: 2000 # of the base link's -- started from base_height's (restored)
+    kd: 10   # gains, not yet separately retuned.
   swing_leg:
     kp: 500
     kd: 20

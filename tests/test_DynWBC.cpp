@@ -194,6 +194,11 @@ int main()
     bool joystick_control_start = false;
     bool goUp = false;
     bool goDown = false;
+    // Measured once when the joystick is initialized -- see that block's
+    // comment. Reused by the base-height oscillation below so every
+    // setPzRef() call converts consistently from base-height terms to
+    // task_CoMZc's actual CoM-height convention.
+    double baseToCoMOffset = 0.0;
     VectorXd tau_wbc;
     double lastQPStatusPrintTime = -1.0;
     const double qpStatusPrintPeriod = 1.0 / 5.0; // 5 Hz
@@ -228,13 +233,26 @@ int main()
             // measured base height (neutral -- no motion commanded yet).
             if (simTime >= rampDuration && !joystick_initialized)
             {
-                joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_base_W(2), 0.0);
+                // kin_task_stand's height task is task_CoMZc (added after
+                // this file's original commit), which compares pz_W against
+                // rb_wrapper.pos_CoM_W(2) -- the actual CoM height, NOT base
+                // height, which for this robot's bent-knee pose differ by
+                // ~0.28m. Everything below still specifies/oscillates
+                // targets in BASE-height terms (kept as originally written,
+                // since that's the physically meaningful quantity for a
+                // "base height demo"), then converts by this fixed,
+                // once-measured offset before actually calling setPzRef() --
+                // otherwise task_CoMZc would be permanently ~0.28m off
+                // target, which was confirmed to blow up DynWBC's QP.
+                baseToCoMOffset = robot_wrapper.pos_base_W(2) - robot_wrapper.pos_CoM_W(2);
+
+                joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_CoM_W(2), 0.0);
                 joyStick.setMotionState(MotionState::STAND);
                 joyStick.setVxDesLPara(0.0, 0.1);
                 joyStick.setVyDesLPara(0.0, 0.1);
                 joyStick.setWzDesLPara(0.0, 0.1);
 
-                joyStick.setPzRef(0.82, 3.0);
+                joyStick.setPzRef(0.82 - baseToCoMOffset, 3.0);
                 joyStick.setPitchRef(0.15, 3.0);
                 goDown = true;
                 goUp = false;
@@ -253,7 +271,10 @@ int main()
                 joyStick.step();
                 gaitScheduler.step(joyStick);
 
-                BaseHeightPlot.addPoint("Reference Pz", simTime, joyStick.pz_W);
+                // joyStick.pz_W is CoM height internally (see above) --
+                // convert back to base-height terms here so the plot still
+                // shows what its title says.
+                BaseHeightPlot.addPoint("Reference Pz", simTime, joyStick.pz_W + baseToCoMOffset);
                 BaseHeightPlot.addPoint("Estimated Pz", simTime, robot_wrapper.pos_base_W(2));
 
                 // Oscillate the base-height target between 0.75m and 0.80m --
@@ -262,12 +283,12 @@ int main()
                     if (goDown) {
                         goDown = false;
                         goUp = true;
-                        joyStick.setPzRef(0.84, 4.0);
+                        joyStick.setPzRef(0.84 - baseToCoMOffset, 4.0);
                         // std::cout << "[t=" << simTime << "] base height target -> 0.80m\n";
                     } else {
                         goDown = true;
                         goUp = false;
-                        joyStick.setPzRef(0.81, 4.0);
+                        joyStick.setPzRef(0.81 - baseToCoMOffset, 4.0);
                         // std::cout << "[t=" << simTime << "] base height target -> 0.75m\n";
                     }
                 }

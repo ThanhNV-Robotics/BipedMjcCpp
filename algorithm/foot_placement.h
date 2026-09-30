@@ -30,6 +30,14 @@ public:
     double zOff_W{0.0}; // world-frame vertical offset
     double phi{0};      // phase varialbe for trajectory generation, must between 0 and 1
     double tSwing{0.4}; // swing time
+    // DOUBLE-SUPPORT PHASE: landingFraction commented out at the user's
+    // request, unused now that StepSwingPlanning() uses phi directly again
+    // -- see StepSwingPlanning()'s comment. Was: finish the swing-foot
+    // cycloid by phi==landingFraction instead of phi==1, holding stationary
+    // for the remainder as settle/catch-up time before the rigid freeze at
+    // phi>=1.0 (kin_task_stand's left_contact/right_contact pinning
+    // whatever pose the foot was in, mid-air if not yet landed).
+    // double landingFraction{0.85};
     // yamlPath's "foot_placement:" block supplies stepHeight/hip_width/offsets --
     // see config/step_planning_cf.yaml
     FootPlacement(const std::string &yamlPath, RobotWrapper &robot_wrapper);
@@ -47,8 +55,10 @@ public:
 
     double Trajectory(double phase, double des1, double des2);
     void StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick,const CP_Planning &cp_planner);
-
+    void StepSwingPlanning(const RobotWrapper &rb_wrapper, const JoyStickInterpreter &joyStick,const CP_Planning &cp_planner);
+    
     void updateFromRobot(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick);
+    void updateFromRobot(const RobotWrapper &rb_wrapper, const JoyStickInterpreter &joyStick, const CP_Planning &cp_planner);
     Eigen::Vector3d getSwingDesPos() const { return Eigen::Vector3d(pDesCur[0], pDesCur[1], pDesCur[2]); }
 
 private:

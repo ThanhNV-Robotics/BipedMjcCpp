@@ -76,7 +76,22 @@ Eigen::MatrixXd pseudoInv_right_weighted(const Eigen::MatrixXd &M, const Eigen::
 
 Eigen::MatrixXd dyn_pseudoInv(const Eigen::MatrixXd &M, const Eigen::MatrixXd &dyn_M, bool isMinv)
 {
-    double damp = 0;
+    // Tikhonov/damped-least-squares regularization: without it, temp's
+    // inverse (completeOrthogonalDecomposition().pseudoInverse()) can blow
+    // up arbitrarily when the null-space M projects into is near-singular
+    // -- observed directly in KinWBC's task chain, where the LAST task
+    // (thinnest remaining null-space, e.g. 1 DOF left after earlier tasks
+    // consume the rest) turned a tiny target into a >40x-amplified ddq,
+    // triggering a QP infeasibility downstream. 1e-2 was insufficient once
+    // kin_task_stand's last task (CoMZc) sat on a persistent, uncorrected
+    // height error (DynWBC's QP failing -> zero feedforward -> robot sags
+    // -> larger error -> larger amplified ddq -> QP even less feasible):
+    // |ddq_cmd_| was still climbing past 60000 with 1e-2. Bumped by 10x --
+    // retune again (in either direction) if either symptom reappears. Only
+    // read by dyn_pseudoInv(), used only when haveDynMInv is true (i.e.
+    // only by DynWBC-driven callers) -- inert for test_WBCKin_stand.cpp/
+    // test_WBCKin_walk.cpp, which never call computeDyn().
+    double damp = 1e-1;
     Eigen::MatrixXd Minv;
 
     if (isMinv)

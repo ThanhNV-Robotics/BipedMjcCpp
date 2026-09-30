@@ -18,6 +18,7 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     kin_task_stand.push_back(&task_right_contact);
     kin_task_stand.push_back(&task_CoMXY); 
     kin_task_stand.push_back(&task_base_rpy);   
+    // kin_task_stand.push_back(&task_CoMZc);
     kin_task_stand.push_back(&task_base_height);
 
     //---------------Init Walk task---------------------------
@@ -58,6 +59,7 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     loadTaskGain(task_CoMXY,          2);
     loadTaskGain(task_base_rpy,       3);
     loadTaskGain(task_base_height,    1);
+    loadTaskGain(task_CoMZc,          1);
     loadTaskGain(task_swing_leg,      6);
     loadTaskGain(task_lift_foot,      6);
 }
@@ -79,6 +81,7 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
     updateCurrent(robot_wrapper, footPlanner);
 
     // select the task based on gait_scheduler MotionState
+
     std::vector<Task*>* kin_task_ptr;
     switch (gait_scheduler.motionState) {
         case MotionState::WARM_UP:
@@ -154,6 +157,17 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
             else
                 task.ddq = VectorXd::Zero(nv);
         }
+        // Diagnostic: kinematic-level correction only (delta_q/errX/dq/
+        // derrX, what test_WBCKin_stand.cpp actually integrates), gated to
+        // fire only once something's already elevated above the normal
+        // ~0.001-0.003 baseline, so it traces an instability's onset
+        // without flooding routine ticks.
+        if (task.delta_q.norm() > 0.01)
+            std::cout << "  [" << i << "] " << task.taskName
+                      << "  |errX|=" << task.errX.norm()
+                      << "  |derrX|=" << task.derrX.norm()
+                      << "  |delta_q|=" << task.delta_q.norm()
+                      << "  |dq|=" << task.dq.norm() << std::endl;
     }
 
     out_delta_q = kin_task.back()->delta_q;
@@ -192,6 +206,15 @@ void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacem
     task_base_height.dX_des = VectorXd::Constant(1, joyStick_cmd.vz_W);
     task_base_height.ddX_des = VectorXd::Zero(1); // feedforward acceleration is 0
 
+    // CoM height -- same commanded reference as base_height (joystick's
+    // pz_W/vz_W), just tracked via the CoM's own Z instead of the base
+    // link's. See updateCurrent() for why: constrains actual CoM height
+    // directly rather than base height, which only matches CoM height if
+    // the legs/torso mass distribution keeps them coincident.
+    task_CoMZc.X_des = VectorXd::Constant(1, joyStick_cmd.pz_W);
+    task_CoMZc.dX_des = VectorXd::Constant(1, joyStick_cmd.vz_W);
+    task_CoMZc.ddX_des = VectorXd::Zero(1);
+
     // base rpy
     task_base_rpy.X_des = Vector3d(0.0, joyStick_cmd.thetaY, joyStick_cmd.thetaZ);
     task_base_rpy.dX_des = VectorXd::Zero(3);
@@ -228,6 +251,7 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_right_contact.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_CoMXY.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_base_height.W = Eigen::VectorXd::Ones(nv).asDiagonal();
+    task_CoMZc.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_base_rpy.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_static_contact.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_lift_foot.W = Eigen::VectorXd::Ones(nv).asDiagonal();
@@ -241,6 +265,19 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_base_height.dJ = rb_wrapper.dJ_base_W.row(2);
     task_base_height.errX = task_base_height.X_des - task_base_height.X_cur;
     task_base_height.derrX = task_base_height.dX_des - task_base_height.dX_cur;
+
+    // CoM height (task is 1-dim: z only -- Jcom_W's row 2 is the CoM's z-row).
+    // No dJcom_W is available from RobotWrapper (only Jcom_W, no time-
+    // derivative), so dJ is left at an explicit zero here -- a "zero drift"
+    // approximation for the dynamically-consistent ddq solve's dJ*dq term,
+    // same effective assumption task_CoMXY's own (never-assigned, always-
+    // default) dJ already makes.
+    task_CoMZc.X_cur = VectorXd::Constant(1, rb_wrapper.pos_CoM_W(2));
+    task_CoMZc.dX_cur = VectorXd::Constant(1, rb_wrapper.vel_CoM_W(2));
+    task_CoMZc.J = rb_wrapper.Jcom_W.row(2);
+    task_CoMZc.dJ = MatrixXd::Zero(1, nv);
+    task_CoMZc.errX = task_CoMZc.X_des - task_CoMZc.X_cur;
+    task_CoMZc.derrX = task_CoMZc.dX_des - task_CoMZc.dX_cur;
 
     // base rpy (3-dim: orientation error toward upright, world frame).
     // J_base_W's rows 3-5 come from dq's angular-vel dof, which pinocchio
@@ -273,10 +310,20 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_right_contact.errX = VectorXd::Zero(6);
     task_right_contact.derrX = VectorXd::Zero(6);
 
-    // CoMXY (task is 2-dim: x,y only -- Jcom_W's top 2 rows)
+    // CoMXY (task is 2-dim: x,y only -- Jcom_W's top 2 rows). dJ: no
+    // dJcom_W available from RobotWrapper (only Jcom_W, no time-derivative),
+    // so an explicit zero-drift approximation, same as task_CoMZc's --
+    // MUST be a properly-sized zero matrix, not left default-constructed
+    // (0x0): task.dJ * dq_cur in computeWBC_IK()'s ddq loop is a dimension
+    // mismatch against a 0x0 matrix, which is UB in a release build
+    // (assertions compiled out) -- confirmed as the source of the garbage
+    // ddq_cmd_/QP-infeasibility DynWBC saw in double-support stand, since
+    // that's the only caller that reaches this dynamically-consistent path
+    // (pure-kinematic tests skip it via haveDynMInv).
     task_CoMXY.X_cur = rb_wrapper.pos_CoM_W.head(2);
     task_CoMXY.dX_cur = rb_wrapper.vel_CoM_W.head(2);
     task_CoMXY.J = rb_wrapper.Jcom_W.topRows(2);
+    task_CoMXY.dJ = MatrixXd::Zero(2, nv);
 
     // CoMXY CLIK gain step (scales displacement error to per-step deltaX)
     const double dt = 0.001;

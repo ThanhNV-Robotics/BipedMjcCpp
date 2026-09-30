@@ -41,6 +41,7 @@ public:
     Task task_left_contact  = Task("left_contact"); // input 1 to access to left_feet (jacobian, position, vel)
     Task task_right_contact  = Task("right_contact"); // input 2 to access to right_feet (jacobian, position, vel)
     Task task_CoMXY = Task("CoMXY");  // input 3 to access to Jcom_W in robot_wrapper
+    Task task_CoMZc = Task("CoMZc");  // CoM Height task
     Task task_base_height = Task("base_height"); // input 0 to access to base end-effector
     Task task_base_rpy = Task("base_rpy"); // control base orientation
 

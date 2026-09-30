@@ -36,8 +36,6 @@ int main()
     MyGaitScheduler gaitScheduler(STEP_PLANNING_CF_PATH, kin_wbc.dt);
     FootPlacement footPlanner(STEP_PLANNING_CF_PATH, robot_wrapper);
     const double dt = 0.001;
-    const double zc = 0.5;
-    CP_Planning cp_planner(dt, zc, robot_wrapper.hip_width_);
 
     // per-joint MuJoCo qpos/qvel address, looked up by name in
     // robot_wrapper.jointNames_'s order (Pinocchio/URDF order) -- matches
@@ -61,18 +59,9 @@ int main()
     uiController.createWindow("KinWBC forward-kinematics check", false);
 
     // Signal plotting 
-    RealtimePlot JoyStickPlot(mj_model, 800, 600, "Joystick Command", 5.0);
-    JoyStickPlot.setYLabel("meters");
-    JoyStickPlot.setYLimit(-0.35, 0.1); 
-    JoyStickPlot.setLineWidth(2.5f);
 
     RealtimePlot GaitPhasePlot(mj_model, 800, 600, "Gait Phase Plot", 5.0);
     GaitPhasePlot.setYLabel("Phase");
-    GaitPhasePlot.setYLimit(0, 1);
-    GaitPhasePlot.setLineWidth(2.5f);
-
-    RealtimePlot FootPlanning(mj_model, 800, 600, "Foot Planning Plot", 5.0);
-    GaitPhasePlot.setYLabel("Foot trajectory");
     GaitPhasePlot.setYLimit(0, 1);
     GaitPhasePlot.setLineWidth(2.5f);
 
@@ -81,35 +70,60 @@ int main()
     CPPlanning.setYLimit(-0.4, 0.4);
     CPPlanning.setLineWidth(2.5f);
 
-    // Initially starting at a bended configuration to avoid singularity
-
-    const double standLegLength = 0.8;
-    robot_wrapper.q(2) = standLegLength; // init initial base height
-    robot_wrapper.q.segment(7, robot_wrapper.model_na_) = robot_wrapper.computeInitial_Stand(standLegLength);
-    footPlanner.legLength = standLegLength; // StepSwingPlanning()'s swing-foot z target is base height minus this --
-                                             // must match the robot's actual leg length, not FootPlacement's default of 1.0
-
+    // Initial configuration: load directly at the bent-knee stand pose
+    // (computeInitial_Stand()) instead of the straight-leg home pose --
+    // computeWBC_IK()'s null-space IK is unstable starting from straight
+    // legs (near-singular leg Jacobian), so just start bent, no ramp.
+    // Mirrors test_WBCKin_stand.cpp's init exactly -- this file's own
+    // previous init (standLegLength=0.8, hardcoded zc=0.5, CP_Planning
+    // constructed before the robot's pose was even settled) was never
+    // re-validated after task_CoMZc was added/tuned against the stand
+    // test's numbers, and diverged within the first ~50ms of plain STAND,
+    // well before any warm-up/walk logic ever ran.
+    robot_wrapper.q.segment(7, robot_wrapper.model_na_).setZero();
+    robot_wrapper.q(2) = 0.0;
     robot_wrapper.computeKin();
-    const double initial_height = robot_wrapper.pos_base_W(2) ;
-    std::cout << "Initial base height: " << initial_height << "\n";
+    const double straight_leg_length = -robot_wrapper.pos_L_feet_W(2); // max reach, straight legs
 
-    const int numSteps = 3000;
-    const double lowerRate = 0.05; // m/s, commanded torso-lowering speed
-    const double stepSize = 1;
+    const double standLegLength = 0.78;
+    robot_wrapper.q(2) = standLegLength;
+    VectorXd init_joint_config = robot_wrapper.computeInitial_Stand(standLegLength);
+    robot_wrapper.q.segment(7, robot_wrapper.model_na_) = init_joint_config;
+    std::cout<<"init joint position: "<<init_joint_config.transpose()<<std::endl;
+    robot_wrapper.computeKin();
 
-    
-    joyStick.setIniPos(0,0,robot_wrapper.q(2),0);
-    joyStick.setPzRef(standLegLength, 2); // set target reference base height
-    joyStick.setVxDesLPara(0, 2); // no forward velocity command -- combined with footPlanner.inPlaceOnly above,
-                                   // this test should just sway/lift in place, not translate
+    footPlanner.legLength = robot_wrapper.pos_base_W(2);
+    std::cout << "Straight-leg reach: " << straight_leg_length
+               << "  Initial bent-knee base height: " << robot_wrapper.pos_base_W(2) << "\n";
+
+    // Constructed here (after settling into the bent-knee stand pose above)
+    // so zc is the robot's REAL measured CoM height at that pose instead of
+    // a guessed constant -- see test_WBCKin_stand.cpp's identical comment.
+    const double zc = robot_wrapper.pos_CoM_W(2);
+    std::cout << "Bent-knee stand CoM height (used as CP_Planning zc): " << zc << "\n";
+    CP_Planning cp_planner(dt, zc, footPlanner.hip_width);
+
+    const double stepSize = 1.0;
+
+    joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_base_W(2), 0.0);
+    joyStick.setMotionState(MotionState::STAND);
+    joyStick.setVxDesLPara(0.0, 0.1);
+    joyStick.setVyDesLPara(0.0, 0.1);
+    joyStick.setWzDesLPara(0.0, 0.1);
+    joyStick.setPzRef(robot_wrapper.pos_base_W(2), 0.01); // hold the bent-knee height
+
+    cp_planner.xc_ = robot_wrapper.pos_CoM_W(0);
+    cp_planner.yc_ = robot_wrapper.pos_CoM_W(1);
+    cp_planner.d_xc_ = 0.0;
+    cp_planner.d_yc_ = 0.0;
 
     int i = 0;
     double simTime = 0.0;
     const double startWarmUpTime = 2;
     const double startWalkingTime = 4;
     
-    bool initTransition = false;  // guards warm-up one-shot init
-    bool initWalking    = false;  // guards walking one-shot init
+    bool warmUpStarted = false;
+    bool walkingStarted = false;
 
     while (!glfwWindowShouldClose(uiController.window))
     {
@@ -120,52 +134,68 @@ int main()
 
             joyStick.step();
             
+            if (simTime >= startWarmUpTime)
+            {
+                joyStick.setMotionState(MotionState::WARM_UP);
+                gaitScheduler.start(joyStick);
+                footPlanner.inPlaceOnly = true; // sway/lift in place, no forward stepping
+                warmUpStarted = true;
+            }
 
             if (simTime >= startWalkingTime)
-            {               
-                if (!initWalking)
-                {
-                    joyStick.setMotionState(MotionState::WALK);
-                    gaitScheduler.start(joyStick);                
-                    footPlanner.inPlaceOnly = false; // enable forward stepping
-                    joyStick.setVxDesLPara(0.5, 1);
-                    initWalking = true;
-                }
-
-                gaitScheduler.step(joyStick);
-                cp_planner.planWalking(gaitScheduler, joyStick);
-                footPlanner.StepSwingPlanning(robot_wrapper, gaitScheduler, joyStick, cp_planner);
-            }
-            else if (simTime >= startWarmUpTime)
             {
-                if (!initTransition)
-                {
-                    // init gait scheduler and joystick
-                    joyStick.setMotionState(MotionState::WARM_UP);
-                    gaitScheduler.start(joyStick);
-                    initTransition = true;
-                }
-
-                // Warm-up: sway CoM laterally only (cxi_xd_=0), no forward stepping
-                gaitScheduler.step(joyStick);
-                cp_planner.planWarmingUp(gaitScheduler);
-                footPlanner.StepSwingPlanning(robot_wrapper, gaitScheduler, joyStick, cp_planner);
+                joyStick.setMotionState(MotionState::WALK);
+                joyStick.setVxDesLPara(0.5, 1.0);
+                gaitScheduler.start(joyStick);
+                footPlanner.inPlaceOnly = false; // sway/lift in place, no forward stepping
+                warmUpStarted = false;
+                walkingStarted = true;
             }
 
-            // // // compute WB Kinematic
-            kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler);
-            robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
+            //--------------------------------------------------------------------
+            // Warm-up task
+            //--------------------------------------------------------------------
+            if (warmUpStarted )
+            {
+                robot_wrapper.computeKin();
+                joyStick.step();
+                gaitScheduler.step(joyStick);
+
+                cp_planner.planWarmingUp(gaitScheduler);
+
+                footPlanner.StepSwingPlanning(robot_wrapper, joyStick, cp_planner);
+                
+                kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler);
+                robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
+            }
+
+            //--------------------------------------------------------------------
+            // Walking task
+            //--------------------------------------------------------------------
+            if (walkingStarted)
+            {
+                robot_wrapper.computeKin();
+                joyStick.step();
+                gaitScheduler.step(joyStick);
+
+                cp_planner.planWalking(gaitScheduler, joyStick);
+
+                footPlanner.StepSwingPlanning(robot_wrapper, gaitScheduler, joyStick, cp_planner);
+                
+                kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, cp_planner, gaitScheduler);
+                robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
+            }
+
 
             simTime += kin_wbc.dt;
-            // Visualize on mujoco
-            // puppet MuJoCo's qpos/qvel from robot_wrapper's kinematic state
-            // and re-run FK -- mj_forward, never mj_step, so nothing here is
-            // ever physically simulated, only kinematically displayed
+
+
+            //--------------------------------------------------------------------
+            // Visualize on MuJoCo: puppet qpos/qvel from robot_wrapper kinematics
+            //--------------------------------------------------------------------
             mj_data->qpos[freeQposAdr + 0] = robot_wrapper.q(0);
             mj_data->qpos[freeQposAdr + 1] = robot_wrapper.q(1);
-            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2) + 0.1;
-            // // MuJoCo's free-joint quaternion order is (w,x,y,z); Pinocchio's
-            // // q.segment<4>(3) coeffs order is (x,y,z,w)
+            mj_data->qpos[freeQposAdr + 2] = robot_wrapper.q(2) + 0.08;
             mj_data->qpos[freeQposAdr + 3] = robot_wrapper.q(6); // w
             mj_data->qpos[freeQposAdr + 4] = robot_wrapper.q(3); // x
             mj_data->qpos[freeQposAdr + 5] = robot_wrapper.q(4); // y
@@ -185,45 +215,31 @@ int main()
             }
 
             mj_forward(mj_model, mj_data);
-            i++;
         }
 
-
-        // JoyStickPlot.addPoint("base height", simTime, robot_wrapper.pos_base_W(2));
-        JoyStickPlot.addPoint("target pz_W", simTime, joyStick.pz_W);
-        JoyStickPlot.addPoint("vx_ref", simTime, joyStick.vx_W);
-        JoyStickPlot.addPoint("vy_ref", simTime, joyStick.vy_W);
-        JoyStickPlot.render(); // makes JoyStickPlot's own context current, draws, swaps buffers
 
         GaitPhasePlot.addPoint("Phase", simTime, gaitScheduler.phi);
         GaitPhasePlot.render();
 
-        // CPPlanning.addPoint("Cxi_Y_d", simTime, cp_planner.cxi_yd_);
-        // CPPlanning.addPoint("CoM_Y", simTime, cp_planner.yc_);
-        // CPPlanning.addPoint("Cxi_Y", simTime, cp_planner.cxi_y_);
+        // CoM marker in the 3D scene -- offset by the same +0.08 in Z the
+        // puppeted base uses above, so the marker lines up with the
+        // visualized (shifted) robot instead of floating below it.
+        static const float colorCoM[4] = {1.0f, 0.85f, 0.1f, 0.9f};
+        Eigen::Vector3d comMarkerPos_W = robot_wrapper.pos_CoM_W + Eigen::Vector3d(0.0, 0.0, 0.08);
+        uiController.addSphere(comMarkerPos_W, 0.025, colorCoM);
 
-        CPPlanning.addPoint("Cxi_X", simTime, cp_planner.cxi_x_);
-        CPPlanning.addPoint("CoM_X", simTime, cp_planner.xc_);
-        CPPlanning.addPoint("Cxi_Y", simTime, cp_planner.cxi_y_);
-        CPPlanning.addPoint("CoM_Y", simTime, cp_planner.yc_);
-
-        // CPPlanning.addPoint("Foot_X", simTime, footPlanner.getSwingDesPos()[0]);
-        // CPPlanning.addPoint("Cxi_X", simTime, cp_planner.cxi_x_);
-        // CPPlanning.addPoint("Foot_Y", simTime, footPlanner.getSwingDesPos()[1]);
-        // CPPlanning.addPoint("Cxi_Y", simTime, cp_planner.cxi_y_);
-        
-
-        CPPlanning.render();
-
-        FootPlanning.addPoint("Foot_X_Ref", simTime, footPlanner.getSwingDesPos()[0]);
-        // FootPlanning.addPoint("Foot_Y_Ref", simTime, footPlanner.getSwingDesPos()[1]);
-        // FootPlanning.addPoint("Foot_Z_Ref", simTime, footPlanner.getSwingDesPos()[2]);
-        FootPlanning.render();
+        // ZMP marker + a line connecting it to the CoM -- same LIPM
+        // "pendulum" picture the CPPlanning plot's Cxi/CoM traces show, just
+        // in 3D. ZMP sits at ground level, offset by the same +0.08 as the
+        // CoM marker above so both stay in the same visual frame as the
+        // puppeted robot.
+        static const float colorZMP[4] = {0.9f, 0.2f, 0.2f, 0.9f};
+        Eigen::Vector3d zmpMarkerPos_W(cp_planner.px_d_, cp_planner.py_d_, 0.08);
+        uiController.addSphere(zmpMarkerPos_W, 0.02, colorZMP);
+        uiController.addLine(zmpMarkerPos_W, comMarkerPos_W, colorZMP, 2.0);
 
         uiController.updateScene();
     }
-
-    std::cout << "Final base height: " << robot_wrapper.pos_base_W(2) << "\n";
     uiController.Close();
     return 0;
 }

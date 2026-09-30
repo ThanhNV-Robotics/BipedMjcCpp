@@ -50,20 +50,6 @@ void JoyStickInterpreter::setMotionState (MotionState motion_state)
 {
     this->motion_state = motion_state;
 }
-// NOTE: currently only the  x, y directions are controlled. Walking on a slope is not considered here.
-void JoyStickInterpreter::dataBusWrite(DataBus &dataBus) {
-    dataBus.js_pos_des[0]=px_W;
-    dataBus.js_pos_des[1]=py_W;
-    dataBus.js_vel_des[0]=vx_W;
-    dataBus.js_vel_des[1]=vy_W;
-    dataBus.js_eul_des[2]=thetaZ;
-    dataBus.js_omega_des[2]=wz_L;
-    dataBus.base_pos_des << px_W, py_W, pz_W;
-    dataBus.base_rpy_des[1] = thetaY;
-    dataBus.base_rpy_des[2] = thetaZ;
-    dataBus.base_vel_des << vx_W, vy_W, vz_W;
-    dataBus.base_omega_des[2] = wz_L;
-}
 
 void JoyStickInterpreter::reset() {
     vxLGen.resetOut(0);

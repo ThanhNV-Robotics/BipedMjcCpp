@@ -115,10 +115,10 @@ int main(int argc, const char** argv)
     uiController.disableTracking(); // enable viewpoint tracking of the body 1 of the robot
     uiController.createWindow("Demo", false);
 
-    // real-time plot of the foot touch sensors (lf-touch, rf-touch)
-    const char* touchLineNames[2] = {"lf-touch", "rf-touch"};
-    const float touchLineColors[2][3] = {{1, 0, 0}, {0, 0, 1}};
-    uiController.initSensorFigure("Foot Touch Sensors", touchLineNames, touchLineColors, 2);
+    // // real-time plot of the foot touch sensors (lf-touch, rf-touch)
+    // const char* touchLineNames[2] = {"lf-touch", "rf-touch"};
+    // const float touchLineColors[2][3] = {{1, 0, 0}, {0, 0, 1}};
+    // uiController.initSensorFigure("Foot Touch Sensors", touchLineNames, touchLineColors, 2);
 
     while (!glfwWindowShouldClose(uiController.window))
     {
@@ -191,8 +191,8 @@ int main(int argc, const char** argv)
         mj_forward(mj_model, mj_data);
 
         // touch sensor
-        Eigen::Matrix<double, 2, 1> touchVals = state_estimator.getTouchSensorValue();
-        uiController.updateSensorFigure(mj_data->time, touchVals.data(), 2);
+        // Eigen::Matrix<double, 2, 1> touchVals = state_estimator.getTouchSensorValue();
+        // uiController.updateSensorFigure(mj_data->time, touchVals.data(), 2);
         uiController.updateScene();
     }
 

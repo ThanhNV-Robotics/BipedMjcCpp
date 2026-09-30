@@ -31,7 +31,6 @@ public:
     double vx_W{0.0}, vy_W{0.0}, vz_W{0.0}; // generated velocity in x and y direction w.r.t world frame
     double px_W{0.0}, py_W{0.0}, pz_W{0.0}; // generated position in x and y direction w.r.t world frame
     double vx_L{0.0}, vy_L{0.0}, wz_L{0.0}; // generated linear velocity in x and y direction, angular velocity in z direction, w.r.t body frame
-    void dataBusWrite(DataBus &dataBus);
     void reset();
     MotionState getMotionState () {return this->motion_state;};
 

@@ -2,7 +2,8 @@
 # FootPlacement). Read via yaml-cpp in each class's constructor -- see
 # algorithm/my_gait_scheduler.cpp / algorithm/foot_placement.cpp.
 gait_scheduler:
-  tSwing: 1.2 # swing phase duration, seconds
+  tSwing: 0.8 # swing phase duration, seconds
+  # tDoubleSupport: 0.2 # double-support phase disabled at the user's request -- see my_gait_scheduler.cpp's step()
 
 foot_placement:
   stepHeight: 0.05 # peak swing-foot lift height, meters

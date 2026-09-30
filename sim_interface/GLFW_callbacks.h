@@ -102,10 +102,22 @@ public:
     // edge would look cluttered. widthPixels is in screen pixels (mjGEOM_LINE
     // convention), not world units.
     void addLine(const Eigen::Vector3d& from, const Eigen::Vector3d& to, const float rgba[4] = nullptr, double widthPixels = 1.5);
-    void clearArrows() { custom_arrows_.clear(); }
+    void clearArrows() { custom_arrows_.clear(); custom_spheres_.clear(); }
+
+    // A small solid ball at a world point (e.g. CoM). Unlike addArrow()/
+    // addLine() (connector-type geoms between two points), a sphere just
+    // needs a position + radius, so it's a separate geom kind/list rather
+    // than another VisualArrow "connector" variant.
+    struct VisualSphere {
+        mjtNum pos[3];
+        float rgba[4];
+        mjtNum radius;
+    };
+    void addSphere(const Eigen::Vector3d& pos, double radius = 0.02, const float rgba[4] = nullptr);
 
 private:
     std::vector<VisualArrow> custom_arrows_;
+    std::vector<VisualSphere> custom_spheres_;
     unsigned char* image_rgb_;
     float* image_depth_;
 

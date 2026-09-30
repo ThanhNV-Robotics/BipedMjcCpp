@@ -165,6 +165,17 @@ void UIctr::updateScene() {
     }
     custom_arrows_.clear();
 
+    // Render custom visual spheres (e.g. CoM marker)
+    for (const auto& s : custom_spheres_) {
+        if (scn.ngeom < scn.maxgeom) {
+            mjvGeom* geom = &scn.geoms[scn.ngeom];
+            mjtNum size[3] = {s.radius, s.radius, s.radius};
+            mjv_initGeom(geom, mjGEOM_SPHERE, size, s.pos, nullptr, s.rgba);
+            scn.ngeom++;
+        }
+    }
+    custom_spheres_.clear();
+
     glfwGetFramebufferSize(window, &viewport.width, &viewport.height);
     mjr_render(viewport, &scn, &con);
     std::string timeStr = "Simulation Time: " + std::to_string(mj_data->time);
@@ -454,6 +465,19 @@ void UIctr::addArrow(const double pos[3], const double vec[3], double scale, con
 void UIctr::addArrow(const Eigen::Vector3d& pos, const Eigen::Vector3d& vec, double scale, const float rgba[4], double width)
 {
     addArrow(pos.data(), vec.data(), scale, rgba, width);
+}
+
+void UIctr::addSphere(const Eigen::Vector3d& pos, double radius, const float rgba[4])
+{
+    VisualSphere s;
+    s.pos[0] = pos(0); s.pos[1] = pos(1); s.pos[2] = pos(2);
+    if (rgba) {
+        for (int i = 0; i < 4; ++i) s.rgba[i] = rgba[i];
+    } else {
+        s.rgba[0] = 1.0f; s.rgba[1] = 0.85f; s.rgba[2] = 0.1f; s.rgba[3] = 0.9f; // default yellow
+    }
+    s.radius = radius;
+    custom_spheres_.push_back(s);
 }
 
 void UIctr::addLine(const Eigen::Vector3d& from, const Eigen::Vector3d& to, const float rgba[4], double widthPixels)

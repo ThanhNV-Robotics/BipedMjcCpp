@@ -14,6 +14,7 @@ public:
 	bool start_walk{true};
     double phi{0};
     double tSwing{0.8};
+
     double dt{0.001};
     double FzThrehold{100};
     double Fz_L_m{0}, Fz_R_m{0};
@@ -23,6 +24,8 @@ public:
     // yamlPath's "gait_scheduler:" block supplies tSwing -- see
     // config/step_planning_cf.yaml
     MyGaitScheduler(const std::string &yamlPath, double dtIn);
+    MyGaitScheduler(const double &tSwingIn);
+
     void step(JoyStickInterpreter &joyStick);
     void stop();
 	void start(JoyStickInterpreter &joystick);
