@@ -24,11 +24,27 @@ struct Task {
     VectorXd deltaX_des, X_des, dX_des, ddX_des; //task space desired velocity and acceleration 
     VectorXd errX, derrX;
 
-    VectorXd delta_q, dq, ddq; //joint space velocity and acceleration 
+    VectorXd delta_q, dq, ddq; //joint space velocity and acceleration
     MatrixXd J, dJ, Jpre; // Jacobian, Jacobian derivative,...
     MatrixXd N; // Null space projection matrix of J
     MatrixXd kp, kd; // pd gain in task space
     Eigen::DiagonalMatrix<double, -1> W; //weighted matrix for pseudo inverse
+
+    // Optional per-component safety clamp (rad/tick) on this task's OWN
+    // delta_q INCREMENT (pseudoInv(Jpre,W)*(errX - J*parent.delta_q), i.e.
+    // what it adds on top of parent.delta_q -- NOT the cumulative
+    // total). <=0 (default) means unclamped, preserving every existing
+    // task's behavior exactly. Tasks sharing their Cartesian-priority
+    // chain with little or no remaining null-space room (e.g. a
+    // low-priority postural task on a robot whose higher-priority tasks
+    // already consume ~all of nv) can have a severely ill-conditioned
+    // pseudoInv_right_weighted even with errX=0 -- confirmed to blow
+    // delta_q up past 1e13 within a few ticks. This clamp bounds the
+    // damage regardless of how bad the conditioning gets, same technique
+    // task_CoMXY already uses on its own errX for the same reason, just
+    // applied to the INCREMENT so it works for any task regardless of
+    // priority depth.
+    double maxDeltaQStep{-1.0};
 
     Task(std::string name) {taskName = name;}; // constructor
 };

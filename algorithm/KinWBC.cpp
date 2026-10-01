@@ -4,6 +4,7 @@
 #include "data_type.h"
 #include "robot_wrapper.h"
 #include "yaml-cpp/yaml.h"
+#include <algorithm>
 #include <cstdio>
 #include <stdexcept>
 
@@ -28,19 +29,17 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     kin_task_init_walk.push_back(&task_base_rpy);
     kin_task_init_walk.push_back(&task_base_height);
     // task_posture NOT added here -- see its declaration comment in
-    // KinWBC.h for what it's for, and the "Confirmed non-issue"-style note
-    // this is heading toward in plan.md for why it's reverted: with this
-    // robot's task dims before it already summing to exactly nv=18, its
-    // projected Jacobian has ~no null-space room, and the resulting
-    // pseudo-inverse is severely ill-conditioned -- confirmed via direct
-    // measurement to blow up delta_q past 1e13 within a few ticks EVEN
-    // WITH errX=0 (posture_nominal_ unset), since the ill-conditioning
-    // amplifies the J*parent.delta_q cross-term regardless of this task's
-    // own target. A single relaxed DOF (task_static_contact's ankle-roll
-    // projection, still in place below) wasn't enough slack. Needs a more
-    // careful redesign (more freed DOF, and/or tighter damping in
-    // pseudoInv_right_weighted specifically for this task) before
-    // reintroducing.
+    // KinWBC.h. Tried twice now: unclamped (delta_q blew up past 1e13
+    // within a few ticks, even with errX=0 -- this robot's task dims
+    // before it already sum to exactly nv=18, leaving ~no null-space
+    // room) and with a per-component maxDeltaQStep clamp (0.001 rad/tick,
+    // prevented the blow-up, but produced a persistent ~+-0.05m base_y
+    // wobble during WALK even with vx_des=0 -- visibly unstable, not
+    // clean). Needs a properly-scoped redesign (more freed DOF across
+    // multiple tasks, not just static_contact's one relaxed axis; and/or
+    // rethinking whether a Cartesian-null-space postural task is even the
+    // right mechanism for a robot this tight on redundancy) before
+    // reintroducing again.
 
     //---------------Walking task---------------------------
     // Base-tracking tasks (CoMXY/base_rpy/base_height -- our analog of
@@ -91,6 +90,14 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     loadTaskGain(task_swing_leg,      6);
     loadTaskGain(task_lift_foot,      6);
     loadTaskGain(task_posture,        12);
+    // Safety clamp (see Task::maxDeltaQStep's comment in KinWBC.h) -- this
+    // robot's task lists leave ~no null-space room before posture, so its
+    // pseudoInv_right_weighted can be severely ill-conditioned regardless
+    // of target. 0.001 rad/tick is small enough that even a worst-case
+    // blow-up can't destabilize anything, while still letting it make
+    // gradual progress toward posture_nominal_ over many ticks whenever
+    // there IS some genuine (even if small) null-space room available.
+    task_posture.maxDeltaQStep = 0.001;
 }
 
 void KinWBC::printTaskInfo() {
@@ -145,6 +152,15 @@ void KinWBC::solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& 
     const VectorXd &dq_cur = robot_wrapper.dq;
 
     const bool haveDynMInv = (robot_wrapper.dyn_M_inv.rows() == nv && robot_wrapper.dyn_M_inv.cols() == nv);
+    // See Task::maxDeltaQStep's comment in KinWBC.h -- clamps a task's OWN
+    // delta_q INCREMENT (not the cumulative total) component-wise, a
+    // no-op for every task that leaves maxDeltaQStep at its default -1.
+    auto clampIncrement = [](VectorXd increment, double maxStep) {
+        if (maxStep > 0)
+            for (int k = 0; k < increment.size(); ++k)
+                increment(k) = std::max(-maxStep, std::min(maxStep, increment(k)));
+        return increment;
+    };
     for (size_t i = 0; i < kin_task.size(); i++)
     {
         Task &task = *kin_task[i];
@@ -155,7 +171,7 @@ void KinWBC::solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& 
         {
             task.N = MatrixXd::Identity(nv, nv);
             task.Jpre = task.J * task.N;
-            task.delta_q = pseudoInv_right_weighted(task.Jpre, task.W) * task.errX;
+            task.delta_q = clampIncrement(pseudoInv_right_weighted(task.Jpre, task.W) * task.errX, task.maxDeltaQStep);
             task.dq = pseudoInv_right_weighted(task.Jpre, task.W) * task.dX_des;
             if (haveDynMInv)
                 task.ddq = dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
@@ -168,7 +184,8 @@ void KinWBC::solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& 
             Task &parent = *kin_task[i - 1];
             task.N = parent.N * (MatrixXd::Identity(parent.Jpre.cols(), parent.Jpre.cols()) - pseudoInv_right_weighted(parent.Jpre, parent.W) * parent.Jpre);
             task.Jpre = task.J * task.N;
-            task.delta_q = parent.delta_q + pseudoInv_right_weighted(task.Jpre, task.W) * (task.errX - task.J * parent.delta_q);
+            VectorXd increment = clampIncrement(pseudoInv_right_weighted(task.Jpre, task.W) * (task.errX - task.J * parent.delta_q), task.maxDeltaQStep);
+            task.delta_q = parent.delta_q + increment;
             task.dq = parent.dq + pseudoInv_right_weighted(task.Jpre, task.W) * (task.dX_des - task.J * parent.dq);
 
             if (haveDynMInv)
@@ -436,8 +453,10 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     // forced to Zero(6) below regardless of X_des, matching task_left_
     // contact/task_right_contact above). DSt (before walking starts / mid-
     // transition) defaults to the left foot.
+    Matrix3d Rcur_stance;
     if (footPlanner.legState == LegState::RSt)
     {
+        Rcur_stance = rb_wrapper.rot_R_feet_W;
         task_static_contact.X_cur = rb_wrapper.pos_R_feet_W;
         task_static_contact.dX_cur = rb_wrapper.vel_R_feet_W;
         task_static_contact.J = rb_wrapper.J_Rfeet_W;
@@ -445,11 +464,27 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     }
     else // LSt or DSt
     {
+        Rcur_stance = rb_wrapper.rot_L_feet_W;
         task_static_contact.X_cur = rb_wrapper.pos_L_feet_W;
         task_static_contact.dX_cur = rb_wrapper.vel_L_feet_W;
         task_static_contact.J = rb_wrapper.J_Lfeet_W;
         task_static_contact.dJ = rb_wrapper.dJ_Lfeet_W;
     }
+    // Relax ONE rotational DOF of the stance-foot hold -- OpenLoong's own
+    // static_Contact does the same thing (their taskCtMap, comment "disable
+    // ankle roll joint"): project the foot-LOCAL-X rotational direction
+    // (roll) out of J's rotational rows, via the foot's own rotation. This
+    // doesn't shrink the task's dimension (still 6) but makes it RANK-
+    // DEFICIENT by exactly 1 in that direction, freeing 1 DOF of
+    // null-space for lower-priority tasks -- specifically task_posture,
+    // whose maxDeltaQStep clamp (see KinWBC.h) bounds the damage if this
+    // still isn't enough room, but genuine null-space room is what lets it
+    // actually make progress instead of just safely doing nothing.
+    Matrix3d rollProjector = Matrix3d::Zero();
+    rollProjector(1, 1) = 1.0;
+    rollProjector(2, 2) = 1.0;
+    rollProjector = Rcur_stance * rollProjector * Rcur_stance.transpose();
+    task_static_contact.J.bottomRows(3) = rollProjector * task_static_contact.J.bottomRows(3);
     task_static_contact.errX = VectorXd::Zero(6);
     task_static_contact.derrX = VectorXd::Zero(6);
 
