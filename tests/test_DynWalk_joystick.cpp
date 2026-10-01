@@ -209,6 +209,26 @@ int main()
                     joyStick.setMotionState(MotionState::WALK);
                     joyStick.setVxDesLPara(walkVx, 1.0);
                     gaitScheduler.start(joyStick);
+
+                    // Re-seed the joystick's integrated position to the
+                    // robot's ACTUAL current CoM-xy position right at this
+                    // transition. During STAND, task_CoMXY.X_des used the
+                    // midpoint-of-feet override (see KinWBC.cpp's
+                    // updateReference()), NOT px_W/py_W -- those stayed
+                    // frozen at whatever they were seeded to back at
+                    // joystick_initialized (several seconds earlier) since
+                    // vx_W/vy_W are 0 throughout STAND. If the robot's
+                    // actual held position (via the midpoint override)
+                    // drifted at all from that original seed, switching to
+                    // px_W/py_W-based tracking at WALK start creates an
+                    // instant CoM-position discontinuity -- task_CoMXY.errX
+                    // jumping to whatever that gap is, right as the task
+                    // list also switches -- instead of the "it's trying to
+                    // track CoM back to a stale/zero-ish reference" tilt
+                    // this produces.
+                    joyStick.px_W = robot_wrapper.pos_CoM_W(0);
+                    joyStick.py_W = robot_wrapper.pos_CoM_W(1);
+
                     walkingStarted = true;
                     std::cout << "[t=" << simTime << "] Starting forward walk, vx_des=" << walkVx << " m/s\n";
                 }

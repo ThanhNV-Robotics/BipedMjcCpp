@@ -115,7 +115,7 @@ int main()
     // own demos don't have one either; Raibert foot placement handles the
     // first step directly from a standing start.
     const double startWalkingTime = 2.0;
-    const double walkVx = 0.0; // forward speed command, m/s
+    const double walkVx = 0.2; // forward speed command, m/s
     bool walkingStarted = false;
 
     while (!glfwWindowShouldClose(uiController.window))
