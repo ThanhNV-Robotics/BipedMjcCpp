@@ -60,20 +60,15 @@
   YAML::Node qp_config = YAML::LoadFile(qp_config_yaml_path);
   const YAML::Node &cost = qp_config["qp_cost_weight"];
 
-  // Wr_single_ is a SINGLE-contact-point (6x6) block; setupQPproblem()
-  // expands it block-diagonally per active contact -- eq. 11's
-  // F_r^T*Wr*F_r term is a per-contact 6-dim wrench, one per foot.
-  const YAML::Node &wr = cost["contact_wrench"];
-  Wr_single_ = MatrixXd::Zero(contact_dim_, contact_dim_);
-  Wr_single_(0, 0) = wr["Wr_fx"].as<double>();
-  Wr_single_(1, 1) = wr["Wr_fy"].as<double>();
-  Wr_single_(2, 2) = wr["Wr_fz"].as<double>();
-  Wr_single_(3, 3) = wr["Wr_tx"].as<double>();
-  Wr_single_(4, 4) = wr["Wr_ty"].as<double>();
-  Wr_single_(5, 5) = wr["Wr_tz"].as<double>();
-
   muy_    = qp_config["friction_coefficient"]["muy"].as<double>();
   Fz_max_ = qp_config["maximum_normal_contact_force"]["Fz_max"].as<double>();
+
+  // delta_r/delta_Fr cost weights (OpenLoong's Q2/Q1) -- see their comment
+  // in DynWBC.h. Present in this yaml's qp_cost_weight.delta_joint_acceleration
+  // since early in this project but unused until this formulation.
+  const YAML::Node &ddq_cost = cost["delta_joint_acceleration"];
+  w_ddq_b_ = ddq_cost["W_ddq_b"].as<double>();
+  w_ddq_j_ = ddq_cost["W_ddq_j"].as<double>();
 
   const YAML::Node &cop = qp_config["cop_constraint"];
   dx_lower_ = cop["dx_lower"].as<double>();
@@ -85,8 +80,7 @@
   // Friction cone (eq. 12): U_single_ * Fr >= 0, single contact point,
   // Fr = [fx, fy, fz, tx, ty, tz]. Box (pyramid) approximation on the
   // linear force components only -- moments are unconstrained by friction.
-  // setupQPproblem() expands this block-diagonally per active contact,
-  // same as Wr_single_ above.
+  // setupQPproblem() expands this block-diagonally per active contact.
   //   row 0: fz >= 0
   //   row 1: muy_*fz - fx >= 0   (fx <=  muy_*fz)
   //   row 2: muy_*fz + fx >= 0   (fx >= -muy_*fz)
@@ -107,8 +101,7 @@
     printf("===================== DynWBC config =====================\n");
     for (int i = 0; i < na_; ++i)
       printf("joint: %-24s maxTorque=%6.2f\n", joint_names_[i].c_str(), tau_lim_(i));
-    std::cout << "Wr_single_ (diag):\n" << Wr_single_.diagonal().transpose() << std::endl;
-    printf("muy_=%.3f  Fz_max_=%.1f\n", muy_, Fz_max_);
+    printf("muy_=%.3f  Fz_max_=%.1f  W_ddq_b=%.3e  W_ddq_j=%.3e\n", muy_, Fz_max_, w_ddq_b_, w_ddq_j_);
     std::cout << "U_single_ (U_single_ * Fr >= 0):\n" << U_single_ << std::endl;
     printf("CoP bounds: dx=[%.3f, %.3f]  dy=[%.3f, %.3f]\n", dx_lower_, dx_upper_, dy_lower_, dy_upper_);
     printf("===========================================================\n");
@@ -218,7 +211,10 @@ void DynWBC::solveWBQP(KinWBC& kin_wbc_sol, RobotWrapper &robot_wrapper, StateEs
 
     xOpt_iniGuess_.assign(QP_numOfvars_, 0.0);
     qp_prob_->getPrimalSolution(xOpt_iniGuess_.data());
-    // x == Fr entirely now (the only decision variable), so no slicing needed.
+    // x = [delta_r (6); delta_Fr (n_Fr_)] -- getOptimalContactWrench()/
+    // getOptimalJointTorque() split this back into delta_r/delta_Fr and
+    // recover the actual ddq_opt/Fr_opt (ddq_cmd_+[delta_r;0...],
+    // Fr_ff_+delta_Fr).
     optSol_[0] = Eigen::Map<const Eigen::Matrix<qpOASES::real_t, Eigen::Dynamic, 1>>(
         xOpt_iniGuess_.data(), QP_numOfvars_).cast<double>();
 }
@@ -234,7 +230,7 @@ void DynWBC::updateRobotState(RobotWrapper &robot_wrapper, StateEstimator &state
    // to be (re)constructed at the wrong size for that tick's actual task
    // list. setupQPproblem() rebuilds qp_prob_ fresh every call sized for
    // THIS tick's QP_numOfvars_/QP_numOfconstr_, and the LSt/RSt branches
-   // there already set n_Fr_/QP_numOfvars_/Jc_/Wr_/U_ correctly (just
+   // there already set n_Fr_/QP_numOfvars_/Jc_/U_ correctly (just
    // without a CoP constraint) -- so as long as this always matches
    // whatever contact assumption KinWBC's active task list made THIS same
    // tick, switching between DSt/LSt/RSt tick-to-tick is safe.
@@ -253,7 +249,8 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
   // J = 1/2x^THx + g^Tx
   // s.t. x_lb <= x <= x_ub
   // lb_A <= Ax <= ub_A
-  // Decision variable x = Fr ONLY -- see the layout comment in DynWBC.h.
+  // Decision variable x = [delta_r (6); delta_Fr (n_Fr_)] -- see the
+  // layout comment in DynWBC.h / plan.md's "Full QP formulation".
 
   // Check the contact state
   int nContacts = 0;
@@ -271,11 +268,6 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
       this->Jc_.topRows(contact_dim_)    = robot_wrapper.J_Lfeet_W;
       this->Jc_.bottomRows(contact_dim_) = robot_wrapper.J_Rfeet_W;
 
-      // Expand Wr_ block-diagonally for 2 feet
-      Wr_ = MatrixXd::Zero(2*contact_dim_, 2*contact_dim_); // 12x12
-      Wr_.block(0,             0,             contact_dim_, contact_dim_) = Wr_single_;
-      Wr_.block(contact_dim_, contact_dim_, contact_dim_, contact_dim_) = Wr_single_;
-
       // Expand friction cone matrix U block-diagonally for 2 feet: 5 rows
       // (friction cone) per contact, 6 cols (Fr) per contact -- NOT square.
       U_ = MatrixXd::Zero(2*5, 2*contact_dim_); // 10x12
@@ -283,7 +275,6 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
       U_.block(5, contact_dim_, 5, contact_dim_) = U_single_;
 
       n_Fr_ = 2*contact_dim_;
-      QP_numOfvars_ = n_Fr_;
 
       // CoP constraint (eq. not in the paper's eq.11-18 set, added
       // separately): 4 rows per foot, block-diagonal same as U_ above.
@@ -296,57 +287,93 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
     case LegState::LSt: // left stance — only left foot in contact
       nContacts = 1;
       Jc_ = robot_wrapper.J_Lfeet_W; // 6 x nv
-      Wr_ = Wr_single_;
       U_ = U_single_;
       n_Fr_ = contact_dim_;
-      QP_numOfvars_ = n_Fr_;
       break;
     case LegState::RSt: // right stance — only right foot in contact
       nContacts = 1;
       Jc_ = robot_wrapper.J_Rfeet_W; // 6 x nv
-      Wr_ = Wr_single_;
       U_ = U_single_;
       n_Fr_ = contact_dim_;
-      QP_numOfvars_ = n_Fr_;
       break;
   }
 
-  // Hessian H = Wr_ directly -- x IS Fr, no other blocks to assemble.
-  MatrixXd H = Wr_;
+  QP_numOfvars_ = 6 + n_Fr_;
+
+  // Feedforward nominal contact wrench Fr_ff_ -- Fz = (total weight) /
+  // nContacts per foot in contact, all else zero. Total mass read directly
+  // off Mq_(0,0): for ANY free-flyer-jointed robot the floating-base mass
+  // matrix's top-left 3x3 translational block is total_mass*I3 regardless
+  // of configuration (standard rigid-body-dynamics identity), so this
+  // needs no separate mass bookkeeping or yaml entry.
+  const double total_mass = Mq_(0, 0);
+  const double total_weight = total_mass * g_;
+  Fr_ff_ = VectorXd::Zero(n_Fr_);
+  for (int i = 0; i < nContacts; ++i)
+    Fr_ff_(i * contact_dim_ + 2) = total_weight / nContacts;
+
+  // Hessian: block-diagonal [Q2 (delta_r), Q1 (delta_Fr)] -- see
+  // w_ddq_b_/w_ddq_j_'s comment in DynWBC.h.
+  MatrixXd H = MatrixXd::Zero(QP_numOfvars_, QP_numOfvars_);
+  H.topLeftCorner(6, 6) = w_ddq_b_ * MatrixXd::Identity(6, 6);
+  H.bottomRightCorner(n_Fr_, n_Fr_) = w_ddq_j_ * MatrixXd::Identity(n_Fr_, n_Fr_);
 
   //-------------------------------------------------------------
   // -------------Construct constraints -------------------------
+  // All inequality constraints are expressed against the ACTUAL contact
+  // wrench Fr = Fr_ff_ + delta_Fr, so each becomes "(block * delta_Fr) >=/<=
+  // bound - (block * Fr_ff_)" -- delta_r never appears in these (zero
+  // columns in that half of each constraint row).
   //-------------------------------------------------------------
 
-  // Friction cone (eq. 12): U_ * Fr >= 0
-  MatrixXd A_fr_ = U_;
+  // Friction cone (eq. 12): U_*(Fr_ff_+delta_Fr) >= 0  =>  U_*delta_Fr >= -U_*Fr_ff_
+  MatrixXd A_fr_ = MatrixXd::Zero(U_.rows(), QP_numOfvars_);
+  A_fr_.rightCols(n_Fr_) = U_;
+  VectorXd b_fr_lo = -U_ * Fr_ff_;
 
-  // Normal reaction force constraint (eq. 13): S_ * Fr <= Fz_max_
-  S_ = MatrixXd::Zero(nContacts, QP_numOfvars_);
+  // Normal reaction force constraint (eq. 13): S_*(Fr_ff_+delta_Fr) <= Fz_max_
+  S_ = MatrixXd::Zero(nContacts, n_Fr_);
   for (int i = 0; i < nContacts; ++i)
     S_(i, i * contact_dim_ + 2) = 1.0;
-  VectorXd Fz_max_ub = Fz_max_ * VectorXd::Ones(nContacts);
-  MatrixXd A_Fzmax = S_;
+  MatrixXd A_Fzmax = MatrixXd::Zero(nContacts, QP_numOfvars_);
+  A_Fzmax.rightCols(n_Fr_) = S_;
+  VectorXd Fz_max_ub = Fz_max_ * VectorXd::Ones(nContacts) - S_ * Fr_ff_;
+
+  // CoP constraint, same Fr_ff_-shift as above.
+  MatrixXd A_cop_full = MatrixXd::Zero(A_cop.rows(), QP_numOfvars_);
+  VectorXd b_cop_lo = VectorXd::Zero(A_cop.rows());
+  if (A_cop.rows() > 0) {
+    A_cop_full.rightCols(n_Fr_) = A_cop;
+    b_cop_lo = -A_cop * Fr_ff_;
+  }
 
   //-------------------------------------------------------------
-  // Dynamic constraint (eq. 15), UNDERACTUATED/BASE ROWS ONLY, ddq FIXED
-  // (= ddq_cmd_, set from KinWBC::out_ddq in solveWBQP() -- NOT solved for
-  // here). A direct linear equation in Fr alone:
-  //   Jc_.transpose().topRows(6) * Fr = Mq_.topRows(6)*ddq_cmd_ + h_nl_.head(6)
+  // Dynamic constraint (eq. 15), UNDERACTUATED/BASE ROWS ONLY, now in
+  // terms of (delta_r, delta_Fr) -- see plan.md's "Full QP formulation"
+  // for the derivation:
+  //   M_bb*delta_r - Jc_bb^T*delta_Fr =
+  //       -(Mq_.topRows(6)*ddq_cmd_ + h_nl_.head(6)) + Jc_bb^T*Fr_ff_
+  // where M_bb = Mq_.topLeftCorner(6,6) (base-base mass matrix block) and
+  // Jc_bb^T = Jc_.transpose().topRows(6). ALWAYS solvable -- 6 equations,
+  // 6+n_Fr_ unknowns, delta_r free to absorb whatever delta_Fr can't.
   // An EQUALITY constraint (lbA = ubA = b_dyn), 6 rows.
   //-------------------------------------------------------------
-  MatrixXd A_dyn = Jc_.transpose().topRows(6);
-  VectorXd b_dyn = Mq_.topRows(6) * ddq_cmd_ + h_nl_.head(6);
+  MatrixXd M_bb = Mq_.topLeftCorner(6, 6);
+  MatrixXd Jc_bb_T = Jc_.transpose().topRows(6);
+  MatrixXd A_dyn = MatrixXd::Zero(6, QP_numOfvars_);
+  A_dyn.leftCols(6) = M_bb;
+  A_dyn.rightCols(n_Fr_) = -Jc_bb_T;
+  VectorXd b_dyn = -(Mq_.topRows(6) * ddq_cmd_ + h_nl_.head(6)) + Jc_bb_T * Fr_ff_;
 
   //-------------------------------------------------------------
   // Stack every constraint block into the single matrix/bounds qpOASES
-  // needs (A_fr_, A_Fzmax, A_cop inequalities; A_dyn equality):
-  //   A_fr_  : lbA = 0,    ubA = +inf        (eq. 12, U_*Fr >= 0)
-  //   A_Fzmax: lbA = -inf, ubA = Fz_max_ub   (eq. 13, S_*Fr <= Fz_max_)
-  //   A_cop  : lbA = 0,    ubA = +inf        (CoP-in-support-polygon, see buildCoPConstraintSingle())
-  //   A_dyn  : lbA = ubA = b_dyn             (eq. 15, equality)
+  // needs (A_fr_, A_Fzmax, A_cop_full inequalities; A_dyn equality):
+  //   A_fr_     : lbA = b_fr_lo,  ubA = +inf        (eq. 12, friction cone)
+  //   A_Fzmax   : lbA = -inf,     ubA = Fz_max_ub    (eq. 13, normal force)
+  //   A_cop_full: lbA = b_cop_lo, ubA = +inf        (CoP-in-support-polygon)
+  //   A_dyn     : lbA = ubA = b_dyn                  (eq. 15, equality)
   //-------------------------------------------------------------
-  QP_numOfconstr_ = A_fr_.rows() + A_Fzmax.rows() + A_cop.rows() + A_dyn.rows();
+  QP_numOfconstr_ = A_fr_.rows() + A_Fzmax.rows() + A_cop_full.rows() + A_dyn.rows();
 
   MatrixXd A = MatrixXd::Zero(QP_numOfconstr_, QP_numOfvars_);
   VectorXd lbA = VectorXd::Zero(QP_numOfconstr_);
@@ -354,7 +381,7 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
 
   int row = 0;
   A.middleRows(row, A_fr_.rows()) = A_fr_;
-  lbA.segment(row, A_fr_.rows()).setZero();
+  lbA.segment(row, A_fr_.rows()) = b_fr_lo;
   ubA.segment(row, A_fr_.rows()).setConstant(qpOASES::INFTY);
   row += A_fr_.rows();
 
@@ -363,11 +390,11 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
   ubA.segment(row, A_Fzmax.rows()) = Fz_max_ub;
   row += A_Fzmax.rows();
 
-  if (A_cop.rows() > 0) {
-    A.middleRows(row, A_cop.rows()) = A_cop;
-    lbA.segment(row, A_cop.rows()).setZero();
-    ubA.segment(row, A_cop.rows()).setConstant(qpOASES::INFTY);
-    row += A_cop.rows();
+  if (A_cop_full.rows() > 0) {
+    A.middleRows(row, A_cop_full.rows()) = A_cop_full;
+    lbA.segment(row, A_cop_full.rows()) = b_cop_lo;
+    ubA.segment(row, A_cop_full.rows()).setConstant(qpOASES::INFTY);
+    row += A_cop_full.rows();
   }
 
   A.middleRows(row, A_dyn.rows()) = A_dyn;
@@ -414,8 +441,8 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
   // qp_g_/qp_A_/qp_lb_/qp_ub_/qp_lbA_/qp_ubA_ above are fully populated at
   // this point, and qp_prob_ is ready to init()); calling init()/
   // getPrimalSolution() is left to solveWBQP()'s separate solve step.
-  // H = Wr_, block-diagonal with strictly positive diagonal entries from
-  // qp_config.yaml -- positive definite.
+  // H = diag(w_ddq_b_*I6, w_ddq_j_*I(n_Fr_)), strictly positive diagonal
+  // entries from qp_config.yaml -- positive definite.
   qp_prob_ = std::make_unique<qpOASES::QProblem>(QP_numOfvars_, QP_numOfconstr_, qpOASES::HST_POSDEF);
   qpOASES::Options options;
   // setToReliable() is the confirmed fix for a "Division by zero" ->
@@ -433,19 +460,26 @@ void DynWBC::setupQPproblem (RobotWrapper &robot_wrapper)
 
 VectorXd DynWBC::getOptimalContactWrench()
 {
-  return optSol_[0];
+  // optSol_[0] = [delta_r; delta_Fr] -- the ACTUAL contact wrench callers
+  // want is Fr_ff_ + delta_Fr (see DynWBC.h's Fr_ff_/decision-variable
+  // comment), not the raw delta.
+  return Fr_ff_ + optSol_[0].tail(n_Fr_);
 }
 
 VectorXd DynWBC::getOptimalJointTorque()
 {
-  // Inverse dynamics, actuated-joint rows only: given the (fixed) ddq_cmd_
-  // and the QP-solved contact wrench Fr, the full nv_-dim generalized force
-  // needed is Mq_*ddq_cmd_ + h_nl_ - Jc_^T*Fr -- the first 6 (base) rows
-  // are exactly zero by construction (that's what the dynamics equality
-  // constraint in setupQPproblem() enforced when solving for Fr); the
+  // Inverse dynamics, actuated-joint rows only: given the QP-solved
+  // ddq_opt (= ddq_cmd_ + [delta_r;0...]) and Fr_opt (= Fr_ff_+delta_Fr),
+  // the full nv_-dim generalized force needed is Mq_*ddq_opt + h_nl_ -
+  // Jc_^T*Fr_opt -- the first 6 (base) rows are exactly zero by
+  // construction (that's what the dynamics equality constraint in
+  // setupQPproblem() enforced when solving for delta_r/delta_Fr); the
   // remaining na_ rows are the actual actuated-joint torques. Same
   // approach OpenLoong-Dyn-Control's WBC_priority::computeTau() uses
   // (tauRes = dyn_M*eigen_ddq_Opt + dyn_Non - Jfe.transpose()*eigen_fr_Opt).
-  VectorXd tau_full = Mq_ * ddq_cmd_ + h_nl_ - Jc_.transpose() * optSol_[0];
+  VectorXd ddq_opt = ddq_cmd_;
+  ddq_opt.head(6) += optSol_[0].head(6);
+  VectorXd Fr_opt = Fr_ff_ + optSol_[0].tail(n_Fr_);
+  VectorXd tau_full = Mq_ * ddq_opt + h_nl_ - Jc_.transpose() * Fr_opt;
   return tau_full.tail(na_);
 }

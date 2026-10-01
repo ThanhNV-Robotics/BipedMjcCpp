@@ -56,7 +56,15 @@ public:
     double Trajectory(double phase, double des1, double des2);
     void StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick,const CP_Planning &cp_planner);
     void StepSwingPlanning(const RobotWrapper &rb_wrapper, const JoyStickInterpreter &joyStick,const CP_Planning &cp_planner);
-    
+    // CP_Planning-free overload -- pure Raibert heuristic, ported directly
+    // from OpenLoong-Dyn-Control's FootPlacement::getSwingPos() (no
+    // capture-point/ZMP preview at all): posDes_W = hipPos_W - KP*(desV_W -
+    // curV_W) + 0.5*tSwing*curV_W + curV_W*(1-phi)*tSwing, plus a
+    // yaw-rate correction term. Pairs with updateFromRobot()'s
+    // gait_scheduler-driven overload (legState keyed directly off
+    // gait_scheduler.legState, no 1-cycle swing delay).
+    void StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick);
+
     void updateFromRobot(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick);
     void updateFromRobot(const RobotWrapper &rb_wrapper, const JoyStickInterpreter &joyStick, const CP_Planning &cp_planner);
     Eigen::Vector3d getSwingDesPos() const { return Eigen::Vector3d(pDesCur[0], pDesCur[1], pDesCur[2]); }

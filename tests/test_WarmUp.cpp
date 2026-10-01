@@ -111,6 +111,12 @@ int main()
     const double init_base_height = 0.8;
     VectorXd qIniDes = robot_wrapper.computeInitial_Stand(init_base_height);
     std::cout << "init joint position: " << qIniDes.transpose() << std::endl;
+    // Postural task (KinWBC.h's task_posture) target -- the nominal
+    // bent-knee configuration, so the stance leg gets softly pulled back
+    // toward this instead of drifting toward full-extension singularity
+    // during single-stance. Left unset, task_posture is inert (falls back
+    // to X_des=X_cur every tick).
+    kin_wbc.posture_nominal_ = qIniDes;
 
     // Spawn robot in home configuration (all actuated joints are 0)
     mj_data->qpos[0] = 0.0;

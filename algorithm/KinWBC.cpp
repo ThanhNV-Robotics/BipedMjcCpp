@@ -24,16 +24,44 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     //---------------Init Walk task---------------------------
     kin_task_init_walk.push_back(&task_static_contact);
     kin_task_init_walk.push_back(&task_lift_foot);
-    kin_task_init_walk.push_back(&task_CoMXY);    
+    kin_task_init_walk.push_back(&task_CoMXY);
     kin_task_init_walk.push_back(&task_base_rpy);
     kin_task_init_walk.push_back(&task_base_height);
+    // task_posture NOT added here -- see its declaration comment in
+    // KinWBC.h for what it's for, and the "Confirmed non-issue"-style note
+    // this is heading toward in plan.md for why it's reverted: with this
+    // robot's task dims before it already summing to exactly nv=18, its
+    // projected Jacobian has ~no null-space room, and the resulting
+    // pseudo-inverse is severely ill-conditioned -- confirmed via direct
+    // measurement to blow up delta_q past 1e13 within a few ticks EVEN
+    // WITH errX=0 (posture_nominal_ unset), since the ill-conditioning
+    // amplifies the J*parent.delta_q cross-term regardless of this task's
+    // own target. A single relaxed DOF (task_static_contact's ankle-roll
+    // projection, still in place below) wasn't enough slack. Needs a more
+    // careful redesign (more freed DOF, and/or tighter damping in
+    // pseudoInv_right_weighted specifically for this task) before
+    // reintroducing.
 
     //---------------Walking task---------------------------
+    // Base-tracking tasks (CoMXY/base_rpy/base_height -- our analog of
+    // OpenLoong's combined "PosRot" task) outrank swing_leg here, matching
+    // OpenLoong's own kin_tasks_walk order (static_Contact -> PosRot ->
+    // SwingLeg -> ...). With swing_leg higher priority (the previous
+    // order), achieving the swing foot's own non-constant cycloid-velocity
+    // target could freely "borrow" floating-base velocity via the
+    // minimum-norm pseudo-inverse -- nothing above it pinned the base down
+    // yet -- producing a phi-synchronized base-velocity oscillation
+    // (confirmed via direct measurement: ~0.268-0.286 m/s ripple around a
+    // 0.2 m/s commanded walk speed). Pinning the base's own
+    // position/velocity FIRST means swing_leg's correction is confined to
+    // whatever's left in the null space, which can't touch the
+    // already-pinned base DOF.
     kin_task_walk.push_back(&task_static_contact);
-    kin_task_walk.push_back(&task_swing_leg);
     kin_task_walk.push_back(&task_CoMXY);
     kin_task_walk.push_back(&task_base_rpy);
     kin_task_walk.push_back(&task_base_height);
+    kin_task_walk.push_back(&task_swing_leg);
+    // task_posture NOT added here -- see kin_task_init_walk's comment above.
 
     //---------------Per-task operational-space PD gains-----
     // Used only for the acceleration-level solve (out_ddq, see
@@ -62,6 +90,7 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     loadTaskGain(task_CoMZc,          1);
     loadTaskGain(task_swing_leg,      6);
     loadTaskGain(task_lift_foot,      6);
+    loadTaskGain(task_posture,        12);
 }
 
 void KinWBC::printTaskInfo() {
@@ -75,8 +104,18 @@ void KinWBC::printTaskInfo() {
 
 void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const CP_Planning& cp_planning, const MyGaitScheduler& gait_scheduler)
 {
-    // get reference
     updateReference(joyStick, footPlanner, cp_planning);
+    solveTasks(robot_wrapper, footPlanner, gait_scheduler);
+}
+
+void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &footPlanner, const RobotWrapper& robot_wrapper, const MyGaitScheduler& gait_scheduler)
+{
+    updateReference(joyStick, footPlanner, robot_wrapper);
+    solveTasks(robot_wrapper, footPlanner, gait_scheduler);
+}
+
+void KinWBC::solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& footPlanner, const MyGaitScheduler& gait_scheduler)
+{
     // get feedback
     updateCurrent(robot_wrapper, footPlanner);
 
@@ -217,6 +256,77 @@ void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacem
     task_swing_leg.dX_des = VectorXd::Zero(6);
     task_swing_leg.ddX_des = VectorXd::Zero(6);
 
+    // posture -- X_des (with its posture_nominal_-or-hold-current fallback)
+    // is set in updateCurrent(), not here, same reasoning as
+    // left_contact/static_contact above.
+    task_posture.dX_des = VectorXd::Zero(12);
+    task_posture.ddX_des = VectorXd::Zero(12);
+
+    return;
+}
+
+void KinWBC::updateReference(const JoyStickInterpreter& joyStick_cmd, FootPlacement& footPlanner_cmd, const RobotWrapper& robot_wrapper)
+{
+    // Identical to the CP_Planning overload above, except task_CoMXY tracks
+    // the joystick's OWN integrated position/velocity (px_W/py_W/vx_W/vy_W,
+    // already updated every JoyStickInterpreter::step() tick) instead of a
+    // capture-point plan -- see this overload's declaration comment in
+    // KinWBC.h.
+    task_left_contact.X_des = VectorXd::Zero(6);
+    task_left_contact.dX_des = VectorXd::Zero(6);
+    task_left_contact.ddX_des = VectorXd::Zero(6);
+
+    task_right_contact.X_des = VectorXd::Zero(6);
+    task_right_contact.dX_des = VectorXd::Zero(6);
+    task_right_contact.ddX_des = VectorXd::Zero(6);
+
+    // In STAND, OpenLoong's own demo overrides its CoM-xy target to the
+    // midpoint of both feet (walk_wbc_joystick.cpp's pCoMDes(0)/(1) =
+    // (fe_l_pos_W+fe_r_pos_W)*0.5, applied only while motionState==Stand)
+    // instead of tracking js_pos_des -- during WALK that override never
+    // happens, PosRot/js_pos_des takes over instead, matching the
+    // joystick-tracking branch below.
+    if (joyStick_cmd.getMotionState() == MotionState::STAND)
+    {
+        task_CoMXY.X_des = 0.5 * (robot_wrapper.pos_L_feet_W.head<2>() + robot_wrapper.pos_R_feet_W.head<2>());
+        task_CoMXY.dX_des = Vector2d::Zero();
+    }
+    else
+    {
+        task_CoMXY.X_des = Vector2d(joyStick_cmd.px_W, joyStick_cmd.py_W);
+        task_CoMXY.dX_des = Vector2d(joyStick_cmd.vx_W, joyStick_cmd.vy_W);
+    }
+    task_CoMXY.ddX_des = VectorXd::Zero(2);
+
+    task_base_height.X_des = VectorXd::Constant(1, joyStick_cmd.pz_W);
+    task_base_height.dX_des = VectorXd::Constant(1, joyStick_cmd.vz_W);
+    task_base_height.ddX_des = VectorXd::Zero(1);
+
+    task_CoMZc.X_des = VectorXd::Constant(1, joyStick_cmd.pz_W);
+    task_CoMZc.dX_des = VectorXd::Constant(1, joyStick_cmd.vz_W);
+    task_CoMZc.ddX_des = VectorXd::Zero(1);
+
+    task_base_rpy.X_des = Vector3d(0.0, joyStick_cmd.thetaY, joyStick_cmd.thetaZ);
+    task_base_rpy.dX_des = VectorXd::Zero(3);
+    task_base_rpy.ddX_des = VectorXd::Zero(3);
+
+    task_static_contact.X_des = VectorXd::Zero(6);
+    task_static_contact.dX_des = VectorXd::Zero(6);
+    task_static_contact.ddX_des = VectorXd::Zero(6);
+
+    task_lift_foot.X_des = VectorXd::Zero(6);
+    task_lift_foot.X_des.head<3>() = footPlanner_cmd.getSwingDesPos();
+    task_lift_foot.dX_des = VectorXd::Zero(6);
+    task_lift_foot.ddX_des = VectorXd::Zero(6);
+
+    task_swing_leg.X_des = VectorXd::Zero(6);
+    task_swing_leg.X_des.head<3>() = footPlanner_cmd.getSwingDesPos();
+    task_swing_leg.dX_des = VectorXd::Zero(6);
+    task_swing_leg.ddX_des = VectorXd::Zero(6);
+
+    task_posture.dX_des = VectorXd::Zero(12);
+    task_posture.ddX_des = VectorXd::Zero(12);
+
     return;
 }
 
@@ -236,6 +346,7 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     task_static_contact.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_lift_foot.W = Eigen::VectorXd::Ones(nv).asDiagonal();
     task_swing_leg.W = Eigen::VectorXd::Ones(nv).asDiagonal();
+    task_posture.W = Eigen::VectorXd::Ones(nv).asDiagonal();
 
     // base height (task is 1-dim: z only -- J_base_W's row 2 is the base's z-row,
     // since J_base_W.block<3,3>(0,0) = I maps base linear-vel dof straight to rows 0-2)
@@ -390,6 +501,22 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     }
     task_swing_leg.errX = task_swing_leg.X_des - task_swing_leg.X_cur;
     task_swing_leg.derrX = task_swing_leg.dX_des - task_swing_leg.dX_cur;
+
+    // posture (12-dim, JOINT space not Cartesian) -- see its declaration
+    // comment in KinWBC.h. J is Identity on the actuated-joint tangent-
+    // space columns (6..6+12-1, base occupies 0-5) and zero elsewhere, so
+    // this task only ever asks for actuated-joint motion, never touches
+    // the floating base directly.
+    task_posture.X_cur = rb_wrapper.q.segment(7, 12);
+    task_posture.dX_cur = rb_wrapper.dq.segment(6, 12);
+    task_posture.J = MatrixXd::Zero(12, nv);
+    task_posture.J.rightCols(12) = MatrixXd::Identity(12, 12);
+    task_posture.dJ = MatrixXd::Zero(12, nv);
+    // Fall back to X_des=X_cur (inert, zero pull) if the caller never set
+    // posture_nominal_ -- see its comment in KinWBC.h.
+    task_posture.X_des = (posture_nominal_.size() == 12) ? posture_nominal_ : task_posture.X_cur;
+    task_posture.errX = task_posture.X_des - task_posture.X_cur;
+    task_posture.derrX = task_posture.dX_des - task_posture.dX_cur;
 }
 
 

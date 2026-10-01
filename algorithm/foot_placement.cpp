@@ -294,6 +294,69 @@ void FootPlacement::StepSwingPlanning(const RobotWrapper &rb_wrapper, const JoyS
     return;
 }
 
+void FootPlacement::StepSwingPlanning(const RobotWrapper &rb_wrapper, const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick)
+{
+    updateFromRobot(rb_wrapper, gait_scheduler, joyStick);
+
+    // Pure Raibert heuristic -- ported directly from OpenLoong-Dyn-Control's
+    // FootPlacement::getSwingPos(). No capture-point/ZMP preview at all:
+    // land the foot where the CoM's current velocity (plus a feedback term
+    // on the velocity ERROR vs. the commanded one) says it will be by the
+    // time the swing finishes.
+    Eigen::Matrix3d KP = Eigen::Matrix3d::Zero(), Rz;
+    KP(0, 0) = kp_vx;
+    KP(1, 1) = kp_vy;
+    Rz << cos(yawCur), -sin(yawCur), 0,
+          sin(yawCur),  cos(yawCur), 0,
+          0, 0, 1;
+    KP = Rz * KP * Rz.transpose();
+
+    posDes_W = hipPos_W - KP * (desV_W - curV_W) + 0.5 * tSwing * curV_W + curV_W * (1 - phi) * tSwing;
+
+    // Yaw-rate correction: predicts where the hip-offset point will be at
+    // touchdown given the current (and commanded) turning rate, same as
+    // OpenLoong's thetaF term.
+    double thetaF = yawCur + theta0 + omegaZ_W * (1 - phi) * tSwing + 0.5 * omegaZ_W * tSwing + kp_wz * (omegaZ_W - desWz_W);
+    posDes_W(0) += 0.5 * hip_width * (cos(thetaF) - cos(yawCur + theta0));
+    posDes_W(1) += 0.5 * hip_width * (sin(thetaF) - sin(yawCur + theta0));
+
+    posDes_W(2) = base_pos(2) - legLength + zOff_W;
+
+    double xOff_W(0), yOff_W(0);
+    if (legState == LegState::LSt)
+    {
+        xOff_W = cos(yawCur) * xOff_L - sin(yawCur) * yOff_L;
+        yOff_W = sin(yawCur) * xOff_L + cos(yawCur) * yOff_L;
+    }
+    else if (legState == LegState::RSt)
+    {
+        xOff_W = cos(yawCur) * xOff_L - sin(yawCur) * (-yOff_L);
+        yOff_W = sin(yawCur) * xOff_L + cos(yawCur) * (-yOff_L);
+    }
+    posDes_W(0) += xOff_W;
+    posDes_W(1) += yOff_W;
+
+    if (inPlaceOnly)
+    {
+        pDesCur[0] = posStart_W(0);
+        pDesCur[1] = posStart_W(1);
+    }
+    else if (phi <= 1.0)
+    {
+        pDesCur[0] = posStart_W(0) + (posDes_W(0) - posStart_W(0)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi));
+        pDesCur[1] = posStart_W(1) + (posDes_W(1) - posStart_W(1)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi));
+    }
+
+    if (phi > 1.0 || legState == LegState::DSt)
+        pDesCur[2] = posStart_W(2);
+    else
+        pDesCur[2] = posStart_W(2) +
+                     stepHeight * 0.5 * (1 - cos(2 * 3.1415 * phi)) +
+                     (posDes_W(2) - posStart_W(2)) / (2 * 3.1415) * (2 * 3.1415 * phi - sin(2 * 3.1415 * phi));
+
+    return;
+}
+
 double FootPlacement::Trajectory(double phase, double hei, double len)
 {
     Bezier_1D Bswpid;

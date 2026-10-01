@@ -64,25 +64,52 @@ private:
   std::vector<qpOASES::real_t> qp_lbA_;        // lower bound on Ax [nc]
   std::vector<qpOASES::real_t> qp_ubA_;        // upper bound on Ax [nc]
   std::vector<qpOASES::real_t> xOpt_iniGuess_; // warm-start guess  [nv]
-  std::vector<VectorXd> optSol_;               // Optimal solution of QP: optSol = [Fr]
+  std::vector<VectorXd> optSol_;               // Optimal solution of QP: optSol = [delta_r; delta_Fr]
 
   // QP problem dimensions
-  // Decision variable: x = [Fr(6 per contact)] ONLY -- following
-  // OpenLoong-Dyn-Control's approach (see doc discussion), ddq is NOT a
-  // decision variable here at all: it comes in as a FIXED, already-solved
-  // quantity from KinWBC::out_ddq (a dynamically-consistent, per-task
-  // operational-space acceleration solve -- see KinWBC.cpp), and the QP's
-  // only remaining job is finding contact wrenches consistent with that
-  // ddq (dynamics equality) and the friction/normal-force limits.
+  // Decision variable: x = [delta_r (6, base-acceleration CORRECTION) ;
+  // delta_Fr (6 per contact, contact-wrench CORRECTION around a
+  // feedforward)] -- ported from OpenLoong-Dyn-Control's
+  // WBC_priority::computeTau() (see plan.md's "Full QP formulation"
+  // section for the full derivation). Unlike the earlier Fr-only
+  // formulation, ddq IS partially a decision variable here: ddq_opt =
+  // ddq_cmd_ + [delta_r;0...], only the floating base's own 6 rows get
+  // corrected, the kinematic joint-space ddq is still trusted as-is. This
+  // gives the dynamics equality constraint below slack to always be
+  // satisfiable (delta_r absorbs whatever small kinematic/dynamic
+  // mismatch delta_Fr alone can't), instead of forcing Fr alone to
+  // compensate for all of it -- the "zero slack" failure mode that caused
+  // most QP-failure/divergence symptoms under the old formulation.
   // Fr - in R6 per contact: reaction wrench (force and moment)
   int n_Fr_;
   const int n_dof_ = 18; // dimension of ddq_cmd_ (= KinWBC::out_ddq), NOT a QP variable count
 
-  int QP_numOfvars_{0}; // total decision variables (== n_Fr_)
-  int QP_numOfconstr_{0}; // number of constraints (friction cone + Fz_max + dynamics equality)
+  int QP_numOfvars_{0}; // total decision variables (== 6 + n_Fr_)
+  int QP_numOfconstr_{0}; // number of constraints (friction cone + Fz_max + CoP + dynamics equality)
 
-  // cost fcn J = Fr^T*Wr*Fr
-  MatrixXd Wr_single_, Wr_; // weight matrix for the cost function
+  const double g_ = 9.81; // gravity, for Fr_ff_'s nominal-weight computation
+
+  // Feedforward/nominal contact wrench -- Fz = (total weight)/nContacts per
+  // foot in contact (half each in DSt, full on the single stance foot in
+  // LSt/RSt), all other components zero. delta_Fr is the QP-solved
+  // CORRECTION around this baseline (Fr_opt = Fr_ff_ + delta_Fr), not the
+  // raw force itself -- lets the cost penalize deviation from an
+  // already-sensible stance instead of penalizing raw force magnitude
+  // (which would perversely reward a SMALLER contact force, even though a
+  // big one is needed just to hold the robot up). Rebuilt each
+  // setupQPproblem() call from Mq_(0,0) -- see its assignment for why that
+  // directly gives total mass with no separate bookkeeping needed.
+  VectorXd Fr_ff_;
+
+  // Cost weights for delta_r/delta_Fr respectively (OpenLoong's Q2/Q1,
+  // applied as uniform diagonal matrices: w_ddq_b_*I(6), w_ddq_j_*I(n_Fr_)).
+  // Loaded from wbc_config.yaml's qp_cost_weight.delta_joint_acceleration
+  // (W_ddq_b/W_ddq_j) -- present in that yaml since early in this project
+  // but never actually read until this formulation. w_ddq_b_ should be
+  // MUCH larger than w_ddq_j_ (OpenLoong uses a ~1e6 ratio, 2e7 vs 2e1) so
+  // the QP trusts the kinematic ddq almost completely and only reaches for
+  // delta_r as a last resort.
+  double w_ddq_b_, w_ddq_j_;
 
   //--------constraints attributes----------------------------
   // Linear Friction cone constraint
@@ -120,17 +147,21 @@ private:
   VectorXd dq_; // current joint+base velocity, kept only for the getDqNorm() diagnostic
 
   // Dynamics equality constraint (eq. 15), UNDERACTUATED/BASE ROWS ONLY,
-  // with ddq FIXED (= ddq_cmd_, set from KinWBC::out_ddq each call, not
-  // solved for) -- a direct linear equation in Fr alone:
-  //   Jc_.transpose().topRows(6) * Fr = Mq_.topRows(6)*ddq_cmd_ + h_nl_.head(6)
+  // now in terms of the decision variables (delta_r, delta_Fr) --
+  // M_bb*delta_r - Jc_bb^T*delta_Fr = -(Mq_.topRows(6)*ddq_cmd_ +
+  // h_nl_.head(6)) + Jc_bb^T*Fr_ff_, where M_bb = Mq_.topLeftCorner(6,6)
+  // and Jc_bb^T = Jc_.transpose().topRows(6) -- see setupQPproblem() and
+  // plan.md's "Full QP formulation" for the derivation. Always solvable
+  // (6 equations, 6+n_Fr_ unknowns).
   MatrixXd Mq_;
   VectorXd h_nl_;
 
-  // ddq used in the dynamics constraint above -- set directly from
-  // KinWBC::out_ddq in solveWBQP() each call (no PD law here anymore;
-  // KinWBC's per-task dynamically-consistent acceleration solve already
-  // produces a proper ddq target, see doc discussion on operational-space
-  // control / Khatib's dynamically-consistent pseudo-inverse).
+  // ddq_cmd_ is the KINEMATIC ddq from KinWBC::out_ddq (ddq_opt =
+  // ddq_cmd_ + [delta_r;0...] once the QP-solved delta_r is applied --
+  // see getOptimalJointTorque()). KinWBC's per-task dynamically-consistent
+  // acceleration solve already produces a proper ddq target, see doc
+  // discussion on operational-space control / Khatib's
+  // dynamically-consistent pseudo-inverse.
   VectorXd ddq_cmd_;
 
   // joint torque limit vector, loaded from yaml but not enforced here --
