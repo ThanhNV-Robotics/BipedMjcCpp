@@ -19,9 +19,17 @@ public:
          RobotWrapper &robot_wrapper,
          bool verbose);
 
-  void solveWBQP(KinWBC& kin_wbc_sol, RobotWrapper &robot_wrapper, StateEstimator &state_estimator); // main function to solve the QP problem
+  // current_leg_state: the PLANNED/commanded stance (defaults to DSt,
+  // preserving existing callers' behavior exactly -- e.g. test_DynWBC.cpp's
+  // STAND-only usage never passes this). Callers that also drive KinWBC
+  // through WARM_UP/WALK (kin_task_init_walk/kin_task_walk, whose
+  // static_contact/lift_foot or swing_leg tasks assume only ONE foot is
+  // rigidly planted) MUST pass the matching LegState here, or DynWBC's QP
+  // assumes double support while KinWBC's IK already assumed single
+  // support that same tick.
+  void solveWBQP(KinWBC& kin_wbc_sol, RobotWrapper &robot_wrapper, StateEstimator &state_estimator, LegState current_leg_state = LegState::DSt); // main function to solve the QP problem
 
-  void updateRobotState(RobotWrapper &robot_wrapper, StateEstimator &state_estimator); // update robot feedback state
+  void updateRobotState(RobotWrapper &robot_wrapper, StateEstimator &state_estimator, LegState current_leg_state = LegState::DSt); // update robot feedback state
 
   VectorXd getOptimalContactWrench();
   VectorXd getOptimalJointTorque(); // actuated-joint torque consistent with ddq_cmd_/optSol_[0] via inverse dynamics

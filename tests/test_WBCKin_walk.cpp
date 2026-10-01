@@ -116,6 +116,24 @@ int main()
     cp_planner.yc_ = robot_wrapper.pos_CoM_W(1);
     cp_planner.d_xc_ = 0.0;
     cp_planner.d_yc_ = 0.0;
+    
+    // // Also bias planWarmingUp()'s/planWalking()'s targets by this same
+    // // position -- otherwise cxi_xd_/cxi_yd_ are 0/+-0.5*wd_hip in absolute
+    // // world-frame terms, pulling the CoM toward world (0,0) instead of
+    // // around the robot's actual stance.
+    // cp_planner.xBias = robot_wrapper.pos_CoM_W(0);
+    // cp_planner.yBias = robot_wrapper.pos_CoM_W(1);
+    // // Capture point state -- separate from xc_/yc_ (CoM), and NEVER
+    // // otherwise seeded (stays at the constructor's 0 until computeCP()
+    // // integrates it). cxi_x0_ is captured FROM this at the first warm-up
+    // // transition, and because b=e^(w*t_swing) is huge for this robot, the
+    // // boundary-value blend px_d_=(cxi_xd_-b*cxi_x0_)/(1-b) is dominated by
+    // // cxi_x0_ as b->inf (the limit is cxi_x0_, not cxi_xd_) -- so leaving
+    // // this at 0 pinned the ZMP reference to the world origin regardless of
+    // // xBias/cxi_xd_, and the CoM ODE (which pulls xc_ toward cxi_x_) then
+    // // dragged the correctly-seeded xc_ back toward 0 too.
+    // cp_planner.cxi_x_ = robot_wrapper.pos_CoM_W(0);
+    // cp_planner.cxi_y_ = robot_wrapper.pos_CoM_W(1);
 
     int i = 0;
     double simTime = 0.0;

@@ -39,6 +39,17 @@ class CP_Planning
         // feet stay planted -- 1.0 (default) preserves the original
         // full-amplitude behavior.
         double swayAmplitudeScale{1.0};
+
+        // World-frame offset added to planWarmingUp()/planWalking()'s
+        // cxi_xd_/cxi_yd_ targets -- callers should set this to the robot's
+        // ACTUAL CoM position right after initial standing (same value
+        // xc_/yc_ get seeded to). Without it, the targets are 0/+-0.5*wd_hip
+        // in absolute world-frame terms, so even though xc_/yc_ start at the
+        // real stance position, the very first sway target still pulls the
+        // CoM toward world (0,0) instead of around the robot's own actual
+        // stance -- a real, if usually small, state-estimator-bias-driven
+        // "impulse" toward (0,0) at the first target-setting edge.
+        double xBias{0.0}, yBias{0.0};
         CP_Planning (const double dtIn, const double zIn, double wd_hipIn);
         
         double CoM_dynamics (double cxi, double xc); // dx = f(x,u)

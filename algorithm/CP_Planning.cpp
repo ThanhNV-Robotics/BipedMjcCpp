@@ -136,7 +136,7 @@ void CP_Planning::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpre
         cxi_y0_ = this->cxi_y_;
 
         cxi_xd_ += step_length; // advance CoM reference by one step
-        cxi_yd_ = sideSign(gait_scheduler.legState) * 0.5 * wd_hip;
+        cxi_yd_ = yBias + sideSign(gait_scheduler.legState) * 0.5 * wd_hip;
     }
 
     // Compute desired ZMP -- boundary-value blend that drives the capture
@@ -183,17 +183,20 @@ void CP_Planning::planWarmingUp (MyGaitScheduler &gait_scheduler)
     t_swing = gait_scheduler.tSwing;
 
     // Edge-triggered, same as planWalking() -- see its comment. No forward
-    // target here (cxi_xd_ stays 0, warm-up never steps), and the lateral
-    // target is scaled by swayAmplitudeScale for callers that want a
-    // smaller in-place sway than a full weight-shift.
+    // sway here (cxi_xd_ holds at xBias, warm-up never steps), and the
+    // lateral target is scaled by swayAmplitudeScale for callers that want
+    // a smaller in-place sway than a full weight-shift. Both offset by
+    // xBias/yBias (see CP_Planning.h) -- without it these targets are 0/
+    // +-0.5*wd_hip in absolute world-frame terms, pulling the CoM toward
+    // world (0,0) instead of around the robot's actual stance position.
     if (gait_scheduler.legState != leg_state_ &&
         (gait_scheduler.legState == LegState::LSt || gait_scheduler.legState == LegState::RSt))
     {
         cxi_x0_ = this->cxi_x_;
         cxi_y0_ = this->cxi_y_;
 
-        cxi_xd_ = 0;
-        cxi_yd_ = sideSign(gait_scheduler.legState) * 0.5 * wd_hip * swayAmplitudeScale;
+        cxi_xd_ = xBias;
+        cxi_yd_ = yBias + sideSign(gait_scheduler.legState) * 0.5 * wd_hip * swayAmplitudeScale;
     }
 
     // calculate ZMP

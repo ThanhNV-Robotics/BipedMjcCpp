@@ -160,5 +160,8 @@ target_link_libraries(test_WBCKin_stand PRIVATE core)
 add_executable(test_WBCKin_walk tests/test_WBCKin_walk.cpp)
 target_link_libraries(test_WBCKin_walk PRIVATE core)
 
-add_executable(test_DynWBC tests/test_DynWBC.cpp)
-target_link_libraries(test_DynWBC PRIVATE core)
+add_executable(test_DynBaseHeightWBC tests/test_DynBaseHeightWBC.cpp)
+target_link_libraries(test_DynBaseHeightWBC PRIVATE core)
+
+add_executable(test_WarmUp tests/test_WarmUp.cpp)
+target_link_libraries(test_WarmUp PRIVATE core)

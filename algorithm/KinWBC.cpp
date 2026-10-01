@@ -103,30 +103,13 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
     std::vector<Task*> &kin_task = *kin_task_ptr;
     // recursive null-space priority solver
     const int nv = robot_wrapper.model_nv_;
-    // Actual current joint velocity -- used for every task's dJ*dq drift
-    // term below. This is deliberately robot_wrapper.dq (the real current
-    // velocity), NOT task.dq/parent.dq (the accumulated per-task velocity
-    // CORRECTION from the loop below) -- dJ*dq is a purely kinematic term
-    // evaluated at the robot's actual current state, same convention
-    // OpenLoong-Dyn-Control's PriorityTasks::computeAll() uses (a single
-    // "dq" parameter shared by every task, not each task's own delta_q/dq).
     const VectorXd &dq_cur = robot_wrapper.dq;
-    // out_ddq's dynamically-consistent solve needs robot_wrapper.dyn_M_inv
-    // populated by a prior computeDyn() call -- callers that only care
-    // about the kinematic outputs (out_delta_q/out_dq/q_des), e.g. pure
-    // forward-kinematics test rigs that never call computeDyn(), would
-    // otherwise segfault here (dyn_pseudoInv() against an empty 0x0
-    // matrix). Skip the ddq solve and leave it zero in that case.
+
     const bool haveDynMInv = (robot_wrapper.dyn_M_inv.rows() == nv && robot_wrapper.dyn_M_inv.cols() == nv);
     for (size_t i = 0; i < kin_task.size(); i++)
     {
         Task &task = *kin_task[i];
-        // Desired task-space (operational-space) acceleration: feedforward
-        // + PD on the task's own position/velocity error. Projected into
-        // joint space below via the DYNAMICALLY CONSISTENT pseudo-inverse
-        // (mass-matrix-weighted, Khatib's operational-space formulation) --
-        // NOT pseudoInv_right_weighted (which is used for delta_q/dq above/
-        // below and is only kinematically, not dynamically, consistent).
+
         VectorXd ddxcmd = task.ddX_des + task.kp * task.errX + task.kd * task.derrX;
 
         if (i == 0) // 1st task in the list has the highest priority
@@ -134,7 +117,7 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
             task.N = MatrixXd::Identity(nv, nv);
             task.Jpre = task.J * task.N;
             task.delta_q = pseudoInv_right_weighted(task.Jpre, task.W) * task.errX;
-            task.dq = pseudoInv_right_weighted(task.Jpre, task.W) * task.derrX;
+            task.dq = pseudoInv_right_weighted(task.Jpre, task.W) * task.dX_des;
             if (haveDynMInv)
                 task.ddq = dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
                                * (ddxcmd - task.dJ * dq_cur);
@@ -144,16 +127,13 @@ void KinWBC::computeWBC_IK (const JoyStickInterpreter &joyStick, FootPlacement &
         else
         {
             Task &parent = *kin_task[i - 1];
-            task.N = parent.N * (MatrixXd::Identity(parent.Jpre.cols(), parent.Jpre.cols())
-                                  - pseudoInv_right_weighted(parent.Jpre, parent.W) * parent.Jpre);
+            task.N = parent.N * (MatrixXd::Identity(parent.Jpre.cols(), parent.Jpre.cols()) - pseudoInv_right_weighted(parent.Jpre, parent.W) * parent.Jpre);
             task.Jpre = task.J * task.N;
-            task.delta_q = parent.delta_q + pseudoInv_right_weighted(task.Jpre, task.W)
-                                                 * (task.errX - task.J * parent.delta_q);
-            task.dq = parent.dq + pseudoInv_right_weighted(task.Jpre, task.W)
-                                       * (task.derrX - task.J * parent.dq);
+            task.delta_q = parent.delta_q + pseudoInv_right_weighted(task.Jpre, task.W) * (task.errX - task.J * parent.delta_q);
+            task.dq = parent.dq + pseudoInv_right_weighted(task.Jpre, task.W) * (task.dX_des - task.J * parent.dq);
+
             if (haveDynMInv)
-                task.ddq = parent.ddq + dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
-                                             * (ddxcmd - task.dJ * dq_cur - task.J * parent.ddq);
+                task.ddq = parent.ddq + dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true) * (ddxcmd - task.dJ * dq_cur - task.J * parent.ddq);
             else
                 task.ddq = VectorXd::Zero(nv);
         }

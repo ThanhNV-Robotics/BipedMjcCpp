@@ -152,12 +152,12 @@ MatrixXd DynWBC::buildCoPConstraintSingle(const Matrix3d &R) const
   return C;
 }
 
-void DynWBC::solveWBQP(KinWBC& kin_wbc_sol, RobotWrapper &robot_wrapper, StateEstimator &state_estimator)
+void DynWBC::solveWBQP(KinWBC& kin_wbc_sol, RobotWrapper &robot_wrapper, StateEstimator &state_estimator, LegState current_leg_state)
 {
     //-----------------------------------------------
     // Update internal states
     //-----------------------------------------------
-    updateRobotState(robot_wrapper, state_estimator);
+    updateRobotState(robot_wrapper, state_estimator, current_leg_state);
 
     //-----------------------------------------------
     // ddq for the dynamics constraint is NOT solved for -- it's taken
@@ -223,22 +223,22 @@ void DynWBC::solveWBQP(KinWBC& kin_wbc_sol, RobotWrapper &robot_wrapper, StateEs
         xOpt_iniGuess_.data(), QP_numOfvars_).cast<double>();
 }
 
-void DynWBC::updateRobotState(RobotWrapper &robot_wrapper, StateEstimator &state_estimator)
+void DynWBC::updateRobotState(RobotWrapper &robot_wrapper, StateEstimator &state_estimator, LegState current_leg_state)
 {
    robot_wrapper.computeDyn(); // compute robot dynamics terms
 
-   // Pinned to DSt for now -- double-support-only is the current target,
-   // and setupQPproblem()'s LSt/RSt branches are known-incomplete stubs
-   // (they never update n_Fr_, so a stale DSt-sized n_Fr_ gets used
-   // against a freshly-6-sized QP_numOfvars_, a severe out-of-bounds
-   // write). Letting contact_state_ follow
-   // state_estimator.getContactState() -- which legitimately reports
-   // LSt/RSt during normal standing (weight-shift noise, brief single-
-   // support blips) -- crashed here; confirmed via gdb backtrace showing
-   // qpOASES::QProblem constructed with _nV=6 (contact_dim_, the LSt/RSt
-   // size) while n_Fr_ was still 12 from the previous DSt tick.
-   // Revisit once LSt/RSt are actually implemented.
-   this->contact_state_ = LegState::DSt;
+   // Set from the caller's PLANNED leg state (see solveWBQP()'s comment),
+   // not a SENSED contact signal -- state_estimator.getContactState()
+   // legitimately reports LSt/RSt during normal standing too (weight-shift
+   // noise, brief single-support blips), which previously caused qp_prob_
+   // to be (re)constructed at the wrong size for that tick's actual task
+   // list. setupQPproblem() rebuilds qp_prob_ fresh every call sized for
+   // THIS tick's QP_numOfvars_/QP_numOfconstr_, and the LSt/RSt branches
+   // there already set n_Fr_/QP_numOfvars_/Jc_/Wr_/U_ correctly (just
+   // without a CoP constraint) -- so as long as this always matches
+   // whatever contact assumption KinWBC's active task list made THIS same
+   // tick, switching between DSt/LSt/RSt tick-to-tick is safe.
+   this->contact_state_ = current_leg_state;
    this->Mq_ = robot_wrapper.dyn_M;
    this->h_nl_ = robot_wrapper.dyn_Non;
    this->dq_ = robot_wrapper.dq;
