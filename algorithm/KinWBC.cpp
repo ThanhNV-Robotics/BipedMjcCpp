@@ -453,10 +453,8 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     // forced to Zero(6) below regardless of X_des, matching task_left_
     // contact/task_right_contact above). DSt (before walking starts / mid-
     // transition) defaults to the left foot.
-    Matrix3d Rcur_stance;
     if (footPlanner.legState == LegState::RSt)
     {
-        Rcur_stance = rb_wrapper.rot_R_feet_W;
         task_static_contact.X_cur = rb_wrapper.pos_R_feet_W;
         task_static_contact.dX_cur = rb_wrapper.vel_R_feet_W;
         task_static_contact.J = rb_wrapper.J_Rfeet_W;
@@ -464,27 +462,25 @@ void KinWBC::updateCurrent (const RobotWrapper& rb_wrapper, const FootPlacement&
     }
     else // LSt or DSt
     {
-        Rcur_stance = rb_wrapper.rot_L_feet_W;
         task_static_contact.X_cur = rb_wrapper.pos_L_feet_W;
         task_static_contact.dX_cur = rb_wrapper.vel_L_feet_W;
         task_static_contact.J = rb_wrapper.J_Lfeet_W;
         task_static_contact.dJ = rb_wrapper.dJ_Lfeet_W;
     }
-    // Relax ONE rotational DOF of the stance-foot hold -- OpenLoong's own
-    // static_Contact does the same thing (their taskCtMap, comment "disable
-    // ankle roll joint"): project the foot-LOCAL-X rotational direction
-    // (roll) out of J's rotational rows, via the foot's own rotation. This
-    // doesn't shrink the task's dimension (still 6) but makes it RANK-
-    // DEFICIENT by exactly 1 in that direction, freeing 1 DOF of
-    // null-space for lower-priority tasks -- specifically task_posture,
-    // whose maxDeltaQStep clamp (see KinWBC.h) bounds the damage if this
-    // still isn't enough room, but genuine null-space room is what lets it
-    // actually make progress instead of just safely doing nothing.
-    Matrix3d rollProjector = Matrix3d::Zero();
-    rollProjector(1, 1) = 1.0;
-    rollProjector(2, 2) = 1.0;
-    rollProjector = Rcur_stance * rollProjector * Rcur_stance.transpose();
-    task_static_contact.J.bottomRows(3) = rollProjector * task_static_contact.J.bottomRows(3);
+    // NOTE: previously relaxed ONE rotational DOF (ankle roll) out of this
+    // task's Jacobian here, via a rank-deficient projector, specifically to
+    // free null-space room for task_posture. task_posture was reverted from
+    // both kin_task_walk/kin_task_init_walk ("Park Phase 1a", see its
+    // declaration comment in KinWBC.h) but this relaxation was left active
+    // -- with nothing downstream to consume the freed DOF, it just left the
+    // stance foot's ankle-roll rotation completely unconstrained by any
+    // task. Confirmed as the actual cause of test_DynWalk_joystick.cpp's
+    // WALK-transition blow-up: left_ankle_roll_joint (the stance ankle)
+    // spiking from 0 to 14 rad/s within 10ms while every other joint
+    // stayed under 1 rad/s, right when the task list switched from
+    // kin_task_stand's rigid task_left_contact/task_right_contact (no
+    // relaxation) to kin_task_walk's task_static_contact (this relaxed
+    // task). Removed -- restore the full rigid 6-dim stance-foot hold.
     task_static_contact.errX = VectorXd::Zero(6);
     task_static_contact.derrX = VectorXd::Zero(6);
 

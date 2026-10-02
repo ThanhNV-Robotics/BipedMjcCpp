@@ -8,8 +8,8 @@
 # joints here, reorder them identically in the URDF (or vice versa).
 left_hip_pitch_joint:
   PVT_LPF_Fc: 20
-  kd: 1.5
-  kp: 200.0
+  kd: 6.0 # from gist_humanoid_mpc/common/joint_ctrl_config_bipedal_m1.json's Left_Hip_Pitch -- confirmed stable on our exact robot model
+  kp: 100.0
   maxPos: 1.04720
   maxSpeed: 100.0
   maxTorque: 48.0
@@ -17,8 +17,8 @@ left_hip_pitch_joint:
   gear: 1
 left_hip_roll_joint:
   PVT_LPF_Fc: 20
-  kd: 1.5
-  kp: 200.0
+  kd: 7.0 # from gist_humanoid_mpc's Left_Hip_Roll
+  kp: 120.0
   maxPos: 0.61087
   maxSpeed: 100
   maxTorque: 48.0
@@ -26,8 +26,8 @@ left_hip_roll_joint:
   gear: 1
 left_hip_yaw_joint:
   PVT_LPF_Fc: 50
-  kd: 1.5
-  kp: 100.0
+  kd: 4.0 # from gist_humanoid_mpc's Left_Hip_Yaw
+  kp: 60.0
   maxPos: 0.78540
   maxSpeed: 20.94
   maxTorque: 18.0
@@ -35,8 +35,8 @@ left_hip_yaw_joint:
   gear: 1
 left_knee_pitch_joint:
   PVT_LPF_Fc: 50
-  kd: 1.5
-  kp: 300.0
+  kd: 7.0 # from gist_humanoid_mpc's Left_Knee
+  kp: 120.0
   maxPos: 2.09440
   maxSpeed: 100
   maxTorque: 48.0
@@ -44,8 +44,8 @@ left_knee_pitch_joint:
   gear: 1
 left_ankle_roll_joint:
   PVT_LPF_Fc: 50
-  kd: 0.5
-  kp: 50.0
+  kd: 0.6 # from gist_humanoid_mpc's Left_Ankle_Roll
+  kp: 30.0
   maxPos: 0.26180
   maxSpeed: 19.16
   maxTorque: 30.0
@@ -53,8 +53,8 @@ left_ankle_roll_joint:
   gear: 1
 left_ankle_pitch_joint:
   PVT_LPF_Fc: 50
-  kd: 0.75
-  kp: 80.0
+  kd: 0.6 # from gist_humanoid_mpc's Left_Ankle_Pitch
+  kp: 30.0
   maxPos: 0.52360
   maxSpeed: 19.16
   maxTorque: 30.0
@@ -62,8 +62,8 @@ left_ankle_pitch_joint:
   gear: 1
 right_hip_pitch_joint:
   PVT_LPF_Fc: 20
-  kd: 1.5
-  kp: 200.0
+  kd: 6.0 # from gist_humanoid_mpc's Right_Hip_Pitch
+  kp: 100.0
   maxPos: 1.04720
   maxSpeed: 100.0
   maxTorque: 48.0
@@ -71,8 +71,8 @@ right_hip_pitch_joint:
   gear: 1
 right_hip_roll_joint:
   PVT_LPF_Fc: 20
-  kd: 1.5
-  kp: 200.0
+  kd: 7.0 # from gist_humanoid_mpc's Right_Hip_Roll
+  kp: 120.0
   maxPos: 0.61087
   maxSpeed: 100
   maxTorque: 48.0
@@ -80,8 +80,8 @@ right_hip_roll_joint:
   gear: 1
 right_hip_yaw_joint:
   PVT_LPF_Fc: 50
-  kd: 1.5
-  kp: 100.0
+  kd: 4.0 # from gist_humanoid_mpc's Right_Hip_Yaw
+  kp: 60.0
   maxPos: 0.78540
   maxSpeed: 20.94
   maxTorque: 18.0
@@ -89,8 +89,8 @@ right_hip_yaw_joint:
   gear: 1
 right_knee_pitch_joint:
   PVT_LPF_Fc: 50
-  kd: 1.5
-  kp: 300.0
+  kd: 7.0 # from gist_humanoid_mpc's Right_Knee
+  kp: 120.0
   maxPos: 2.09440
   maxSpeed: 100
   maxTorque: 48.0
@@ -98,8 +98,8 @@ right_knee_pitch_joint:
   gear: 1
 right_ankle_roll_joint:
   PVT_LPF_Fc: 50
-  kd: 0.5
-  kp: 50.0
+  kd: 0.6 # from gist_humanoid_mpc's Right_Ankle_Roll
+  kp: 30.0
   maxPos: 0.26180
   maxSpeed: 19.16
   maxTorque: 30.0
@@ -107,8 +107,8 @@ right_ankle_roll_joint:
   gear: 1
 right_ankle_pitch_joint:
   PVT_LPF_Fc: 50
-  kd: 0.75
-  kp: 80.0
+  kd: 0.6 # from gist_humanoid_mpc's Right_Ankle_Pitch
+  kp: 30.0
   maxPos: 0.52360
   maxSpeed: 19.16
   maxTorque: 30.0

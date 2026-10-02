@@ -151,7 +151,7 @@ int main()
     // Straight STAND -> WALK, no separate warm-up sway phase -- see this
     // file's header comment.
     const double startWalkingTime = rampDuration + 3.0;
-    const double walkVx = 0.2; // forward speed command, m/s
+    const double walkVx = 0.0; // forward speed command, m/s
     bool walkingStarted = false;
     double lastQPStatusPrintTime = -1.0;
     const double qpStatusPrintPeriod = 1.0 / 5.0;
@@ -279,11 +279,19 @@ int main()
                 double rampFrac = std::min(simTime / rampDuration, 1.0);
                 VectorXd rampedJointPos = rampFrac * qIniDes;
 
-                pvtCtr.motor_pos_des = rampedJointPos;
-                pvtCtr.motor_vel_des = VectorXd::Zero(robot_wrapper.model_na_);
-                pvtCtr.motor_tor_des = VectorXd::Zero(robot_wrapper.model_na_);
+                // Gravity-compensation feedforward -- see
+                // test_DynBaseHeightWBC.cpp's identical ramp-branch fix:
+                // with the lower gist_humanoid_mpc Kp/Kd gains now in
+                // 12dof_joint_config.yaml, position-error-only PD let the
+                // robot sink during this open-loop ramp (confirmed: base_z
+                // already negative by the time WALK started). computeDyn()
+                // must run here too since it's normally only called inside
+                // the joystick_initialized branch above.
+                robot_wrapper.computeDyn();
+                VectorXd tau_gravity = robot_wrapper.computeDoubleSupportGravityTorque();
+
                 pvtCtr.getFeedbackMotorState(robot_wrapper);
-                pvtCtr.calMotorsPVT();
+                pvtCtr.calMotorsPVT(rampedJointPos, VectorXd::Zero(robot_wrapper.model_na_), tau_gravity);
                 mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor);
             }
         }

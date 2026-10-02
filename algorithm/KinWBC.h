@@ -124,4 +124,19 @@ private:
     // null-space solve) -- both the CP_Planning and CP_Planning-free
     // overloads call this after running their own updateReference().
     void solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& footPlanner, const MyGaitScheduler& gait_scheduler);
+
+    // Tried feeding task_swing_leg/task_lift_foot's dX_des from a finite-
+    // difference of footPlanner_cmd.getSwingDesPos() instead of a hardcoded
+    // 0 (to stop the recursive solve's dq = parent.dq + pseudoInv(...)*
+    // (dX_des - J*parent.dq) from fighting the foot's real non-constant
+    // cycloid/Raibert swing velocity). Reverted: it didn't fix
+    // test_DynWalk_joystick.cpp's WALK-transition instability (root cause
+    // turned out to be the missing weight-shift phase before single
+    // support, not this), and it broke test_WBCKin_walk_joystick.cpp (a
+    // previously-stable pure-kinematic baseline) -- that test sets
+    // robot_wrapper.dq = kin_wbc.out_dq directly every tick with zero
+    // physical damping, so feeding back a finite-difference derivative of a
+    // target that's ITSELF a function of measured velocity (the Raibert
+    // heuristic in posDes_W) created an undamped algebraic feedback loop
+    // that diverged to NaN within ~1s of WALK starting.
 };

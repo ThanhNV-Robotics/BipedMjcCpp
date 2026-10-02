@@ -115,7 +115,7 @@ int main()
     // own demos don't have one either; Raibert foot placement handles the
     // first step directly from a standing start.
     const double startWalkingTime = 2.0;
-    const double walkVx = 0.2; // forward speed command, m/s
+    const double walkVx = 0.0; // forward speed command, m/s
     bool walkingStarted = false;
 
     while (!glfwWindowShouldClose(uiController.window))
@@ -144,37 +144,28 @@ int main()
                 // Feed the solved velocity back into robot_wrapper.dq --
                 // without this, dq (hence vel_base_W, hence curV_W in
                 // FootPlacement's Raibert formula) stays frozen at zero for
-                // the whole run, silently disabling the formula's core
-                // "land half a swing-time ahead of the CURRENT velocity"
-                // term (0.5*tSwing*curV_W) and its velocity-error feedback
-                // (-KP*(desV_W-curV_W) degenerates to a constant bias) --
-                // the actual cause of the non-constant base velocity: the
-                // swing foot was landing near wherever the hip currently
-                // was, not where it needed to be for steady-velocity
-                // walking, so CoMXY's own closed-loop correction had to
-                // fight a mistimed gait every cycle instead of the foot
-                // placement doing its job.
+                // the whole run
                 robot_wrapper.dq = kin_wbc.out_dq;
 
-                static double lastFineStatusPrintTime = -1.0;
-                if (simTime >= 4.0 && simTime <= 8.0 && simTime - lastFineStatusPrintTime >= 0.02) {
-                    lastFineStatusPrintTime = simTime;
-                    std::cout << "FINE t=" << simTime << " phi=" << gaitScheduler.phi
-                              << " legState=" << (int)gaitScheduler.legState
-                              << " base_vx=" << robot_wrapper.vel_base_W(0)
-                              << " com_vx=" << robot_wrapper.vel_CoM_W(0)
-                              << " base_x=" << robot_wrapper.pos_base_W(0) << std::endl;
-                }
+                // static double lastFineStatusPrintTime = -1.0;
+                // if (simTime >= 4.0 && simTime <= 8.0 && simTime - lastFineStatusPrintTime >= 0.02) {
+                //     lastFineStatusPrintTime = simTime;
+                //     std::cout << "FINE t=" << simTime << " phi=" << gaitScheduler.phi
+                //               << " legState=" << (int)gaitScheduler.legState
+                //               << " base_vx=" << robot_wrapper.vel_base_W(0)
+                //               << " com_vx=" << robot_wrapper.vel_CoM_W(0)
+                //               << " base_x=" << robot_wrapper.pos_base_W(0) << std::endl;
+                // }
 
-                static double lastStatusPrintTime = -1.0;
-                if (simTime - lastStatusPrintTime >= 1.0) {
-                    lastStatusPrintTime = simTime;
-                    std::cout << "[t=" << simTime << "] base_x=" << robot_wrapper.pos_base_W(0)
-                              << "  base_y=" << robot_wrapper.pos_base_W(1)
-                              << "  base_z=" << robot_wrapper.pos_base_W(2)
-                              << "  joyStick.px_W=" << joyStick.px_W
-                              << "  legState=" << (int)gaitScheduler.legState << std::endl;
-                }
+                // static double lastStatusPrintTime = -1.0;
+                // if (simTime - lastStatusPrintTime >= 1.0) {
+                //     lastStatusPrintTime = simTime;
+                //     std::cout << "[t=" << simTime << "] base_x=" << robot_wrapper.pos_base_W(0)
+                //               << "  base_y=" << robot_wrapper.pos_base_W(1)
+                //               << "  base_z=" << robot_wrapper.pos_base_W(2)
+                //               << "  joyStick.px_W=" << joyStick.px_W
+                //               << "  legState=" << (int)gaitScheduler.legState << std::endl;
+                // }
             }
 
             simTime += kin_wbc.dt;

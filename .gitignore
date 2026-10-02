@@ -5,6 +5,7 @@
 
 OpenLoong-Dyn-Control/
 .vscode/
+gist_humanoid_mpc/
 
 # Compiled Object files
 *.slo

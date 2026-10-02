@@ -177,7 +177,9 @@ void StateEstimator::update(const RobotSensor &rb_sensor, RobotWrapper &rb_wrapp
 
     this->ps_.segment(3 * i, 3) = -R_wb * this->footEndPos_.segment(3 * i, 3);
     this->ps_.segment(3 * i, 3)[2] += footRadius_; // offset in foot height
-    this->vs_.segment(3 * i, 3) = -R_wb * this->footEndVel_.segment(3 * i, 3);
+    this->vs_.segment(3 * i, 3) =
+        -R_wb * (this->footEndVel_.segment<3>(3 * i) +
+                 this->imu_angular_vel_mea_.cross(this->footEndPos_.segment<3>(3 * i)));
 
     // height-residual target: this was never updated after being zero-inited
     // in the constructor, so it permanently measured "this foot's absolute

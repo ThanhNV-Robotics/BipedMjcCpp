@@ -228,20 +228,6 @@ int main()
             // measured base height (neutral -- no motion commanded yet).
             if (simTime >= rampDuration && !joystick_initialized)
             {
-                // kin_task_stand's height task is task_base_height (see
-                // KinWBC.cpp's constructor -- task_CoMZc is explicitly
-                // commented out of that task list), which compares pz_W
-                // directly against rb_wrapper.pos_base_W(2), NOT CoM height.
-                // This file previously assumed task_CoMZc was active and
-                // converted every target through a measured base-to-CoM
-                // offset (~0.29m for this robot's bent-knee pose) before
-                // calling setPzRef() -- that conversion was stale relative
-                // to the current KinWBC.cpp and created an instant ~0.29m
-                // target/current mismatch the moment the joystick
-                // initialized, confirmed as the actual divergence trigger
-                // (QP failing within ~0.2s). pz_W now targets base height
-                // directly, matching what task_base_height actually
-                // measures.
                 joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_base_W(2), 0.0);
                 joyStick.setMotionState(MotionState::STAND);
                 joyStick.setVxDesLPara(0.0, 0.1);
@@ -253,35 +239,13 @@ int main()
                 goDown = true;
                 goUp = false;
 
-                // Seed the CoM XY reference at the robot's actual current
-                // position instead of leaving it at cp_planner's
-                // constructor default (0,0) -- task_CoMXY.X_des reads
-                // cp_planner.xc_/yc_ directly (see KinWBC::updateReference),
-                // and world-frame (0,0) is essentially never where the
-                // robot actually is (small state-estimator bias/drift from
-                // its true start), so leaving it at 0 made KinWBC
-                // continuously push the robot toward a bogus target,
-                // fighting the state estimator instead of just holding the
-                // current stand -- confirmed as the actual divergence
-                // trigger (diverges within ~0.2s of joystick init without
-                // this seeding).
+                // Seed the CoM XY reference at the robot's actual current position 
                 cp_planner.xc_ = robot_wrapper.pos_CoM_W(0);
                 cp_planner.yc_ = robot_wrapper.pos_CoM_W(1);
-                // Also bias planWarmingUp()/planWalking()'s targets by this
-                // same position -- otherwise the targets are 0/+-0.5*wd_hip
-                // in absolute world-frame terms, pulling the CoM toward
-                // world (0,0) instead of around the robot's actual stance.
+                // Also bias planWarmingUp()/planWalking()'
                 cp_planner.xBias = robot_wrapper.pos_CoM_W(0);
                 cp_planner.yBias = robot_wrapper.pos_CoM_W(1);
-                // Capture point state -- separate from xc_/yc_ (CoM), and
-                // NEVER otherwise seeded (stays at the constructor's 0 until
-                // computeCP() integrates it). Because b=e^(w*t_swing) is
-                // huge for this robot, the boundary-value blend
-                // px_d_=(cxi_xd_-b*cxi_x0_)/(1-b) is dominated by cxi_x0_ as
-                // b->inf -- so leaving this at 0 pins the ZMP reference to
-                // the world origin regardless of xBias/cxi_xd_, and the CoM
-                // ODE (which pulls xc_ toward cxi_x_) then drags the
-                // correctly-seeded xc_ back toward 0 too.
+                // Capture point state -- separate from xc_/yc_ (CoM)
                 cp_planner.cxi_x_ = robot_wrapper.pos_CoM_W(0);
                 cp_planner.cxi_y_ = robot_wrapper.pos_CoM_W(1);
 
@@ -396,12 +360,12 @@ int main()
                 double rampFrac = std::min(simTime / rampDuration, 1.0);
                 VectorXd rampedJointPos = rampFrac * qIniDes;
 
-                pvtCtr.motor_pos_des = rampedJointPos;
-                pvtCtr.motor_vel_des = VectorXd::Zero(robot_wrapper.model_na_);
-                pvtCtr.motor_tor_des = VectorXd::Zero(robot_wrapper.model_na_);
+                robot_wrapper.computeDyn();
+                VectorXd tau_gravity = robot_wrapper.computeDoubleSupportGravityTorque();
+
                 pvtCtr.getFeedbackMotorState(robot_wrapper);
-                pvtCtr.calMotorsPVT(); // PD impedance stand control with LPF
-                mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor); // set joint torque to mujoco
+                pvtCtr.calMotorsPVT(rampedJointPos, VectorXd::Zero(robot_wrapper.model_na_), tau_gravity);
+                mj_interface.setMotorsTorque(pvtCtr.motor_tor_out_motor);
             }
         }
 
