@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <mujoco/mujoco.h>
 #include <GLFW/glfw3.h>
@@ -41,6 +42,18 @@ int main()
 
     RobotWrapper robot_wrapper(URDF_PATH);
     KinWBC kin_wbc(YAML_QP_WBC_CF_PATH);
+
+    // CSV log of KinWBC's joint-space command (position + velocity) every
+    // tick, for offline Python plotting -- see record/README or just load
+    // with pandas.read_csv(). record/ is gitignored.
+    std::ofstream jointCmdLog("record/test_WBCKin_walk_joystick_joint_cmd.csv");
+    jointCmdLog << "time";
+    for (const auto &name : robot_wrapper.jointNames_)
+        jointCmdLog << "," << name << "_pos_cmd";
+    for (const auto &name : robot_wrapper.jointNames_)
+        jointCmdLog << "," << name << "_vel_cmd";
+    jointCmdLog << "\n";
+
     JoyStickInterpreter joyStick(kin_wbc.dt);
     MyGaitScheduler gaitScheduler(STEP_PLANNING_CF_PATH, kin_wbc.dt);
     FootPlacement footPlanner(STEP_PLANNING_CF_PATH, robot_wrapper);
@@ -103,7 +116,22 @@ int main()
     // against pos_base_W(2) (see KinWBC.cpp's kin_task_stand/kin_task_walk
     // -- task_CoMZc is never in either list), so pz_W targets base height
     // directly, no CoM-height conversion needed.
-    joyStick.setIniPos(robot_wrapper.pos_base_W(0), robot_wrapper.pos_base_W(1), robot_wrapper.pos_base_W(2), 0.0);
+    //
+    // px_W/py_W, however, feed task_CoMXY (a CoM-tracking task, see
+    // updateReference()'s CP_Planning-free overload), whose X_cur is
+    // robot_wrapper.pos_CoM_W -- NOT pos_base_W. During STAND, task_CoMXY's
+    // target uses a separate midpoint-of-feet override instead of px_W/
+    // py_W, so this mismatch stays latent; but px_W/py_W itself is seeded
+    // here from pos_base_W and never touched again before WALK starts
+    // tracking it directly. If the bent-knee stand posture puts the CoM
+    // anywhere other than exactly above the base link's own origin, that
+    // seeds an offset baked into px_W/py_W from tick 0 -- invisible during
+    // STAND, but the instant WALK's task list switches to tracking px_W/
+    // py_W, task_CoMXY.errX jumps to that offset immediately, producing an
+    // impulsive one-tick correction instead of a smooth start. Seed from
+    // the actual CoM position instead so px_W/py_W already matches
+    // pos_CoM_W when WALK takes over.
+    joyStick.setIniPos(robot_wrapper.pos_CoM_W(0), robot_wrapper.pos_CoM_W(1), robot_wrapper.pos_base_W(2), 0.0);
     joyStick.setMotionState(MotionState::STAND);
     joyStick.setVxDesLPara(0.0, 0.1);
     joyStick.setVyDesLPara(0.0, 0.1);
@@ -140,32 +168,23 @@ int main()
             {
                 footPlanner.StepSwingPlanning(robot_wrapper, gaitScheduler, joyStick);
                 kin_wbc.computeWBC_IK(joyStick, footPlanner, robot_wrapper, gaitScheduler);
+
+                VectorXd jointPosCmd = kin_wbc.getMotorPosDes();
+                VectorXd jointVelCmd = kin_wbc.out_dq.tail(robot_wrapper.model_na_);
+                jointCmdLog << simTime;
+                for (int j = 0; j < jointPosCmd.size(); ++j)
+                    jointCmdLog << "," << jointPosCmd(j);
+                for (int j = 0; j < jointVelCmd.size(); ++j)
+                    jointCmdLog << "," << jointVelCmd(j);
+                jointCmdLog << "\n";
+                jointCmdLog.flush(); // survive a SIGTERM/timeout kill, not just a clean exit
+
                 robot_wrapper.integrateConfig(stepSize * kin_wbc.out_delta_q);
                 // Feed the solved velocity back into robot_wrapper.dq --
                 // without this, dq (hence vel_base_W, hence curV_W in
                 // FootPlacement's Raibert formula) stays frozen at zero for
                 // the whole run
                 robot_wrapper.dq = kin_wbc.out_dq;
-
-                // static double lastFineStatusPrintTime = -1.0;
-                // if (simTime >= 4.0 && simTime <= 8.0 && simTime - lastFineStatusPrintTime >= 0.02) {
-                //     lastFineStatusPrintTime = simTime;
-                //     std::cout << "FINE t=" << simTime << " phi=" << gaitScheduler.phi
-                //               << " legState=" << (int)gaitScheduler.legState
-                //               << " base_vx=" << robot_wrapper.vel_base_W(0)
-                //               << " com_vx=" << robot_wrapper.vel_CoM_W(0)
-                //               << " base_x=" << robot_wrapper.pos_base_W(0) << std::endl;
-                // }
-
-                // static double lastStatusPrintTime = -1.0;
-                // if (simTime - lastStatusPrintTime >= 1.0) {
-                //     lastStatusPrintTime = simTime;
-                //     std::cout << "[t=" << simTime << "] base_x=" << robot_wrapper.pos_base_W(0)
-                //               << "  base_y=" << robot_wrapper.pos_base_W(1)
-                //               << "  base_z=" << robot_wrapper.pos_base_W(2)
-                //               << "  joyStick.px_W=" << joyStick.px_W
-                //               << "  legState=" << (int)gaitScheduler.legState << std::endl;
-                // }
             }
 
             simTime += kin_wbc.dt;

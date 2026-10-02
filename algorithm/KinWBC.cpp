@@ -22,55 +22,29 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     // kin_task_stand.push_back(&task_CoMZc);
     kin_task_stand.push_back(&task_base_height);
 
-    //---------------Init Walk task---------------------------
+    //---------------Warm Up task---------------------------
     kin_task_init_walk.push_back(&task_static_contact);
     kin_task_init_walk.push_back(&task_lift_foot);
     kin_task_init_walk.push_back(&task_CoMXY);
     kin_task_init_walk.push_back(&task_base_rpy);
     kin_task_init_walk.push_back(&task_base_height);
-    // task_posture NOT added here -- see its declaration comment in
-    // KinWBC.h. Tried twice now: unclamped (delta_q blew up past 1e13
-    // within a few ticks, even with errX=0 -- this robot's task dims
-    // before it already sum to exactly nv=18, leaving ~no null-space
-    // room) and with a per-component maxDeltaQStep clamp (0.001 rad/tick,
-    // prevented the blow-up, but produced a persistent ~+-0.05m base_y
-    // wobble during WALK even with vx_des=0 -- visibly unstable, not
-    // clean). Needs a properly-scoped redesign (more freed DOF across
-    // multiple tasks, not just static_contact's one relaxed axis; and/or
-    // rethinking whether a Cartesian-null-space postural task is even the
-    // right mechanism for a robot this tight on redundancy) before
-    // reintroducing again.
 
-    //---------------Walking task---------------------------
-    // Base-tracking tasks (CoMXY/base_rpy/base_height -- our analog of
-    // OpenLoong's combined "PosRot" task) outrank swing_leg here, matching
-    // OpenLoong's own kin_tasks_walk order (static_Contact -> PosRot ->
-    // SwingLeg -> ...). With swing_leg higher priority (the previous
-    // order), achieving the swing foot's own non-constant cycloid-velocity
-    // target could freely "borrow" floating-base velocity via the
-    // minimum-norm pseudo-inverse -- nothing above it pinned the base down
-    // yet -- producing a phi-synchronized base-velocity oscillation
-    // (confirmed via direct measurement: ~0.268-0.286 m/s ripple around a
-    // 0.2 m/s commanded walk speed). Pinning the base's own
-    // position/velocity FIRST means swing_leg's correction is confined to
-    // whatever's left in the null space, which can't touch the
-    // already-pinned base DOF.
+    //---------------Walking task test 1---------------------------
+ 
     kin_task_walk.push_back(&task_static_contact);
     kin_task_walk.push_back(&task_CoMXY);
     kin_task_walk.push_back(&task_base_rpy);
     kin_task_walk.push_back(&task_base_height);
     kin_task_walk.push_back(&task_swing_leg);
-    // task_posture NOT added here -- see kin_task_init_walk's comment above.
+
+    //---------------Walking task test 2---------------------------    
+    kin_task_walk_test.push_back(&task_static_contact); //forward walking
+    kin_task_walk_test.push_back(&task_PosRot);
+    kin_task_walk_test.push_back(&task_swing_leg);
 
     //---------------Per-task operational-space PD gains-----
     // Used only for the acceleration-level solve (out_ddq, see
-    // computeWBC_IK()): ddxcmd = ddX_des + kp*errX + kd*derrX. Loaded from
-    // wbc_config_yaml_path's kin_task_gain section -- one scalar kp/kd per
-    // task (applied uniformly across that task's own dimension), keyed by
-    // the task's own taskName so the yaml keys and Task("...") names stay
-    // in lockstep. Contact tasks always have errX = derrX = Zero (rigid/
-    // hold-pose convention, see updateCurrent()), so their kp/kd never
-    // actually multiply a nonzero value -- the yaml keeps them at 0.
+    // computeWBC_IK()): ddxcmd = ddX_des + kp*errX + kd*derrX.
     YAML::Node wbc_config = YAML::LoadFile(wbc_config_yaml_path);
     const YAML::Node &gains = wbc_config["kin_task_gain"];
 
@@ -90,14 +64,6 @@ KinWBC::KinWBC(const std::string &wbc_config_yaml_path)
     loadTaskGain(task_swing_leg,      6);
     loadTaskGain(task_lift_foot,      6);
     loadTaskGain(task_posture,        12);
-    // Safety clamp (see Task::maxDeltaQStep's comment in KinWBC.h) -- this
-    // robot's task lists leave ~no null-space room before posture, so its
-    // pseudoInv_right_weighted can be severely ill-conditioned regardless
-    // of target. 0.001 rad/tick is small enough that even a worst-case
-    // blow-up can't destabilize anything, while still letting it make
-    // gradual progress toward posture_nominal_ over many ticks whenever
-    // there IS some genuine (even if small) null-space room available.
-    task_posture.maxDeltaQStep = 0.001;
 }
 
 void KinWBC::printTaskInfo() {
@@ -152,15 +118,12 @@ void KinWBC::solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& 
     const VectorXd &dq_cur = robot_wrapper.dq;
 
     const bool haveDynMInv = (robot_wrapper.dyn_M_inv.rows() == nv && robot_wrapper.dyn_M_inv.cols() == nv);
-    // See Task::maxDeltaQStep's comment in KinWBC.h -- clamps a task's OWN
-    // delta_q INCREMENT (not the cumulative total) component-wise, a
-    // no-op for every task that leaves maxDeltaQStep at its default -1.
-    auto clampIncrement = [](VectorXd increment, double maxStep) {
-        if (maxStep > 0)
-            for (int k = 0; k < increment.size(); ++k)
-                increment(k) = std::max(-maxStep, std::min(maxStep, increment(k)));
-        return increment;
-    };
+
+    // Compute des_delta_q, des_dq, des_ddq
+    const VectorXd des_delta_q = VectorXd::Zero(nv);
+    const VectorXd des_dq = VectorXd::Zero(nv);
+    const VectorXd des_ddq = VectorXd::Zero(nv);
+
     for (size_t i = 0; i < kin_task.size(); i++)
     {
         Task &task = *kin_task[i];
@@ -171,11 +134,11 @@ void KinWBC::solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& 
         {
             task.N = MatrixXd::Identity(nv, nv);
             task.Jpre = task.J * task.N;
-            task.delta_q = clampIncrement(pseudoInv_right_weighted(task.Jpre, task.W) * task.errX, task.maxDeltaQStep);
-            task.dq = pseudoInv_right_weighted(task.Jpre, task.W) * task.dX_des;
+            task.delta_q = des_delta_q + pseudoInv_right_weighted(task.Jpre, task.W) * (task.errX - task.J * des_delta_q);
+            task.dq = des_dq + pseudoInv_right_weighted(task.Jpre, task.W) * (task.dX_des - task.J * des_dq);
             if (haveDynMInv)
-                task.ddq = dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
-                               * (ddxcmd - task.dJ * dq_cur);
+                task.ddq = des_ddq + dyn_pseudoInv(task.Jpre, robot_wrapper.dyn_M_inv, true)
+                               * (ddxcmd - task.dJ * dq_cur - task.J * des_ddq);
             else
                 task.ddq = VectorXd::Zero(nv);
         }
@@ -184,8 +147,7 @@ void KinWBC::solveTasks(const RobotWrapper& robot_wrapper, const FootPlacement& 
             Task &parent = *kin_task[i - 1];
             task.N = parent.N * (MatrixXd::Identity(parent.Jpre.cols(), parent.Jpre.cols()) - pseudoInv_right_weighted(parent.Jpre, parent.W) * parent.Jpre);
             task.Jpre = task.J * task.N;
-            VectorXd increment = clampIncrement(pseudoInv_right_weighted(task.Jpre, task.W) * (task.errX - task.J * parent.delta_q), task.maxDeltaQStep);
-            task.delta_q = parent.delta_q + increment;
+            task.delta_q = parent.delta_q + pseudoInv_right_weighted(task.Jpre, task.W) * (task.errX - task.J * parent.delta_q);
             task.dq = parent.dq + pseudoInv_right_weighted(task.Jpre, task.W) * (task.dX_des - task.J * parent.dq);
 
             if (haveDynMInv)

@@ -30,22 +30,6 @@ struct Task {
     MatrixXd kp, kd; // pd gain in task space
     Eigen::DiagonalMatrix<double, -1> W; //weighted matrix for pseudo inverse
 
-    // Optional per-component safety clamp (rad/tick) on this task's OWN
-    // delta_q INCREMENT (pseudoInv(Jpre,W)*(errX - J*parent.delta_q), i.e.
-    // what it adds on top of parent.delta_q -- NOT the cumulative
-    // total). <=0 (default) means unclamped, preserving every existing
-    // task's behavior exactly. Tasks sharing their Cartesian-priority
-    // chain with little or no remaining null-space room (e.g. a
-    // low-priority postural task on a robot whose higher-priority tasks
-    // already consume ~all of nv) can have a severely ill-conditioned
-    // pseudoInv_right_weighted even with errX=0 -- confirmed to blow
-    // delta_q up past 1e13 within a few ticks. This clamp bounds the
-    // damage regardless of how bad the conditioning gets, same technique
-    // task_CoMXY already uses on its own errX for the same reason, just
-    // applied to the INCREMENT so it works for any task regardless of
-    // priority depth.
-    double maxDeltaQStep{-1.0};
-
     Task(std::string name) {taskName = name;}; // constructor
 };
 
@@ -64,6 +48,8 @@ public:
     Task task_static_contact = Task("static_contact"); // specifically for walking
     Task task_swing_leg = Task("swing_leg");
     Task task_lift_foot = Task("lift_foot");
+
+    Task task_PosRot = Task("PosRot");
 
     // Joint-space postural task -- lowest priority, only in
     // kin_task_walk/kin_task_init_walk (single-stance lists). Ported from
@@ -88,6 +74,7 @@ public:
 
     std::vector<Task*> kin_task_stand; //using pointer to access the member tasks
     std::vector<Task*> kin_task_walk; //forward walking
+    std::vector<Task*> kin_task_walk_test; //forward walking
     std::vector<Task*> kin_task_init_walk; // init walking task 
     // std::vector<Task> kin_task_walk;
     VectorXd out_delta_q, out_dq, out_ddq;
